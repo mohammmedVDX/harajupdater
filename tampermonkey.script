@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Haraj Auto Updater - محدث حراج التلقائي
 // @namespace    http://tampermonkey.net/
-// @version      2.2.2
+// @version      2.2.3
 // @description  Auto update Haraj ads with configurable speed - تحديث إعلانات حراج تلقائياً
 // @author       You
 // @match        https://haraj.com.sa/*
@@ -724,16 +724,19 @@
         if (manualToken.length > 10) {
             CONFIG.token = manualToken;
             addLog('success', 'استخدام التوكن اليدوي');
-        } else if (!CONFIG.token || !extractToken()) {
-            addLog('error', 'فشل في استخراج التوكن. الرجاء إدخال التوكن يدوياً أو التحقق من تسجيل الدخول');
-            
-            // Log available storage for debugging
-            console.log('=== DEBUG: Available Storage ===');
-            console.log('localStorage keys:', Object.keys(localStorage));
-            console.log('sessionStorage keys:', Object.keys(sessionStorage));
-            console.log('cookies:', document.cookie);
-            
-            return;
+        } else {
+            // Always try to extract token
+            if (!extractToken()) {
+                addLog('error', 'فشل في استخراج التوكن. الرجاء إدخال التوكن يدوياً أو التحقق من تسجيل الدخول');
+                
+                // Log available storage for debugging
+                console.log('=== DEBUG: Available Storage ===');
+                console.log('localStorage keys:', Object.keys(localStorage));
+                console.log('sessionStorage keys:', Object.keys(sessionStorage));
+                console.log('cookies:', document.cookie);
+                
+                return;
+            }
         }
 
         isRunning = true;
