@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Haraj Auto Updater - محدث حراج اdلتلقائي
+// @name         Haraj Auto Updater - محدث حراج التلقائي
 // @namespace    http://tampermonkey.net/
-// @version      1.1.5
+// @version      1.5.0
 // @description  Auto update Haraj ads with configurable speed - تحديث إعلانات حراج تلقائياً
 // @author       You
 // @match        https://haraj.com.sa/*
@@ -12,8 +12,8 @@
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_addStyle
-// @updateURL    https://raw.githubusercontent.com/mohammmedVDX/harajupdater/refs/heads/main/tampermonkey.script
-// @downloadURL  https://raw.githubusercontent.com/mohammmedVDX/harajupdater/refs/heads/main/tampermonkey.script
+// @updateURL    https://raw.githubusercontent.com/mohammmedVDX/harajupdater/main/tampermonkey.script
+// @downloadURL  https://raw.githubusercontent.com/mohammmedVDX/harajupdater/main/tampermonkey.script
 // @run-at       document-end
 // ==/UserScript==
 
@@ -22,7 +22,7 @@
 
     // Configuration
     const CONFIG = {
-        updateInterval: GM_getValue('updateInterval', 1100), // milliseconds between updates
+        updateInterval: GM_getValue('updateInterval', 1000), // milliseconds between updates
         adsPerBatch: GM_getValue('adsPerBatch', 6), // ads to update per batch
         autoStart: GM_getValue('autoStart', false),
         token: null,
