@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Haraj Auto Updater - محدث حراج التلقائي
 // @namespace    http://tampermonkey.net/
-// @version      1.5.0
+// @version      1.7.0
 // @description  Auto update Haraj ads with configurable speed - تحديث إعلانات حراج تلقائياً
 // @author       You
 // @match        https://haraj.com.sa/*
@@ -14,6 +14,7 @@
 // @grant        GM_addStyle
 // @updateURL    https://raw.githubusercontent.com/mohammmedVDX/harajupdater/main/tampermonkey.script
 // @downloadURL  https://raw.githubusercontent.com/mohammmedVDX/harajupdater/main/tampermonkey.script
+// @connect      raw.githubusercontent.com
 // @run-at       document-end
 // ==/UserScript==
 
@@ -452,7 +453,7 @@
             const cookies = document.cookie.split(';');
             for (let cookie of cookies) {
                 const [name, value] = cookie.trim().split('=');
-
+                
                 // Check for accessToken or refreshToken specifically
                 if (name === 'accessToken' || name === 'refreshToken') {
                     if (value && value.length > 20) {
@@ -462,7 +463,7 @@
                         return true;
                     }
                 }
-
+                
                 // Check if it looks like a JWT token (has two dots)
                 if (value && value.length > 20 && value.split('.').length === 3) {
                     CONFIG.token = value;
@@ -474,7 +475,7 @@
 
             // Method 2: Try to get token from localStorage with various key names
             const possibleKeys = ['token', 'authToken', 'auth_token', 'userToken', 'user_token', 'accessToken', 'access_token'];
-
+            
             for (let key of possibleKeys) {
                 const tokenData = localStorage.getItem(key);
                 if (tokenData) {
@@ -500,14 +501,14 @@
             for (let i = 0; i < localStorage.length; i++) {
                 const key = localStorage.key(i);
                 const value = localStorage.getItem(key);
-
+                
                 // Check if value looks like a JWT token (has two dots)
                 if (value && typeof value === 'string' && value.split('.').length === 3) {
                     CONFIG.token = value;
                     addLog('success', `تم استخراج التوكن من ${key}`);
                     return true;
                 }
-
+                
                 // Check if value is JSON containing a token
                 try {
                     const parsed = JSON.parse(value);
@@ -527,14 +528,14 @@
             for (let i = 0; i < sessionStorage.length; i++) {
                 const key = sessionStorage.key(i);
                 const value = sessionStorage.getItem(key);
-
+                
                 // Check if value looks like a JWT token
                 if (value && typeof value === 'string' && value.split('.').length === 3) {
                     CONFIG.token = value;
                     addLog('success', `تم استخراج التوكن من sessionStorage: ${key}`);
                     return true;
                 }
-
+                
                 // Check if value is JSON containing a token
                 try {
                     const parsed = JSON.parse(value);
@@ -568,22 +569,22 @@
         addLog('info', 'جاري تحميل جميع الإعلانات...');
         document.getElementById('load-posts-btn').disabled = true;
         document.getElementById('load-posts-btn').textContent = '⏳ جاري التحميل...';
-
+        
         let previousCount = 0;
         let currentCount = 0;
         let attempts = 0;
         const maxAttempts = 50; // Maximum attempts to prevent infinite loop
-
+        
         // Function to scroll to bottom
         const scrollToBottom = () => {
             window.scrollTo(0, document.body.scrollHeight);
         };
-
+        
         // Function to scroll to top
         const scrollToTop = () => {
             window.scrollTo(0, 0);
         };
-
+        
         // Function to click load more button
         const clickLoadMore = () => {
             const loadMoreBtn = document.querySelector('[data-testid="posts-load-more"]');
@@ -593,34 +594,34 @@
             }
             return false;
         };
-
+        
         // Function to count current posts
         const countPosts = () => {
             return document.querySelectorAll('[data-test-postid]').length;
         };
-
+        
         // Start from top
         scrollToTop();
         await sleep(500);
-
+        
         // Keep loading until no more posts
         while (attempts < maxAttempts) {
             attempts++;
-
+            
             // Scroll to bottom to trigger lazy loading
             scrollToBottom();
             await sleep(1000);
-
+            
             // Try to click load more button
             const clicked = clickLoadMore();
             if (clicked) {
                 addLog('info', `تم النقر على "مشاهدة المزيد" - المحاولة ${attempts}`);
                 await sleep(2000); // Wait for posts to load
             }
-
+            
             // Count posts
             currentCount = countPosts();
-
+            
             // If count hasn't changed, we might be done
             if (currentCount === previousCount) {
                 // Try one more time to be sure
@@ -637,22 +638,22 @@
                     break;
                 }
             }
-
+            
             addLog('info', `تم تحميل ${currentCount} إعلان حتى الآن...`);
             previousCount = currentCount;
         }
-
+        
         // Scroll back to top
         scrollToTop();
         await sleep(500);
-
+        
         // Final collection
         collectPostIds();
-
+        
         document.getElementById('load-posts-btn').disabled = false;
         document.getElementById('load-posts-btn').textContent = '📋 تحميل الإعلانات';
     }
-
+    
     // Helper sleep function
     function sleep(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
@@ -662,7 +663,7 @@
     function collectPostIds() {
         postIds = [];
         const postElements = document.querySelectorAll('[data-test-postid]');
-
+        
         postElements.forEach(el => {
             const postId = el.getAttribute('data-test-postid');
             if (postId) {
@@ -695,13 +696,13 @@
             addLog('success', 'استخدام التوكن اليدوي');
         } else if (!CONFIG.token || !extractToken()) {
             addLog('error', 'فشل في استخراج التوكن. الرجاء إدخال التوكن يدوياً أو التحقق من تسجيل الدخول');
-
+            
             // Log available storage for debugging
             console.log('=== DEBUG: Available Storage ===');
             console.log('localStorage keys:', Object.keys(localStorage));
             console.log('sessionStorage keys:', Object.keys(sessionStorage));
             console.log('cookies:', document.cookie);
-
+            
             return;
         }
 
@@ -711,7 +712,7 @@
         document.getElementById('load-posts-btn').disabled = true;
 
         addLog('info', 'بدء التحديث...');
-
+        
         await updateBatch();
     }
 
@@ -736,7 +737,7 @@
         }
 
         const batch = postIds.slice(currentIndex, currentIndex + CONFIG.adsPerBatch);
-
+        
         for (let postId of batch) {
             if (!isRunning) break;
             await updatePost(postId);
@@ -753,36 +754,36 @@
             stopUpdating();
         }
     }
-
+    
     // Play finish sound
     function playFinishSound() {
         try {
             // Create audio context
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-
+            
             // Success sound: three ascending notes
             const playNote = (frequency, startTime, duration) => {
                 const oscillator = audioContext.createOscillator();
                 const gainNode = audioContext.createGain();
-
+                
                 oscillator.connect(gainNode);
                 gainNode.connect(audioContext.destination);
-
+                
                 oscillator.frequency.value = frequency;
                 oscillator.type = 'sine';
-
+                
                 gainNode.gain.setValueAtTime(0.3, startTime);
                 gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
-
+                
                 oscillator.start(startTime);
                 oscillator.stop(startTime + duration);
             };
-
+            
             const now = audioContext.currentTime;
             playNote(523.25, now, 0.2);        // C5
             playNote(659.25, now + 0.2, 0.2);  // E5
             playNote(783.99, now + 0.4, 0.4);  // G5
-
+            
             addLog('success', '🔔 تم تشغيل صوت الإنتهاء');
         } catch (e) {
             console.log('Could not play sound:', e);
@@ -812,7 +813,7 @@
             });
 
             const data = await response.json();
-
+            
             if (data.data?.updatePost?.status === 'success' || response.ok) {
                 stats.updated++;
                 addLog('success', `✓ تم تحديث الإعلان #${postId}`);
@@ -842,12 +843,12 @@
         const logContainer = document.getElementById('log-container');
         const entry = document.createElement('div');
         entry.className = `log-entry ${type}`;
-
+        
         const icon = type === 'success' ? '✓' : type === 'error' ? '✗' : 'ℹ';
         entry.innerHTML = `<span class="log-icon">${icon}</span><span>${message}</span>`;
-
+        
         logContainer.insertBefore(entry, logContainer.firstChild);
-
+        
         // Keep only last 50 entries
         while (logContainer.children.length > 50) {
             logContainer.removeChild(logContainer.lastChild);
