@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Haraj Auto Updater - محدث حراج التلقائي
 // @namespace    http://tampermonkey.net/
-// @version      2.1.2
+// @version      2.2.1
 // @description  Auto update Haraj ads with configurable speed - تحديث إعلانات حراج تلقائياً
 // @author       You
 // @match        https://haraj.com.sa/*
@@ -283,148 +283,7 @@
         .speed-preset.active {
             background: rgba(16,185,129,0.5);
         }
-
-        #update-notification {
-            position: fixed;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-            color: white;
-            padding: 15px 20px;
-            border-radius: 10px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
-            z-index: 9999999;
-            display: none;
-            align-items: center;
-            gap: 15px;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            direction: rtl;
-            animation: slideDown 0.3s ease-out;
-        }
-
-        @keyframes slideDown {
-            from {
-                transform: translateX(-50%) translateY(-100px);
-                opacity: 0;
-            }
-            to {
-                transform: translateX(-50%) translateY(0);
-                opacity: 1;
-            }
-        }
-
-        #update-notification.show {
-            display: flex;
-        }
-
-        .update-text {
-            flex: 1;
-            font-size: 14px;
-        }
-
-        .update-version {
-            font-weight: bold;
-            font-size: 16px;
-        }
-
-        .update-btn {
-            background: white;
-            color: #d97706;
-            border: none;
-            padding: 8px 20px;
-            border-radius: 6px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-
-        .update-btn:hover {
-            transform: scale(1.05);
-            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-        }
-
-        .close-update {
-            background: rgba(255,255,255,0.2);
-            border: none;
-            color: white;
-            width: 25px;
-            height: 25px;
-            border-radius: 50%;
-            cursor: pointer;
-            font-size: 18px;
-            line-height: 1;
-            transition: all 0.3s;
-        }
-
-        .close-update:hover {
-            background: rgba(255,255,255,0.3);
-        }
     `);
-
-    // Create update notification
-    function createUpdateNotification() {
-        const notification = document.createElement('div');
-        notification.id = 'update-notification';
-        notification.innerHTML = `
-            <div class="update-text">
-                <div>🎉 يوجد تحديث جديد!</div>
-                <div class="update-version" id="update-version-text"></div>
-            </div>
-            <button class="update-btn" id="update-now-btn">تحديث الآن</button>
-            <button class="close-update" id="close-update-btn">×</button>
-        `;
-        document.body.appendChild(notification);
-
-        // Event listeners
-        document.getElementById('update-now-btn').addEventListener('click', autoUpdate);
-
-        document.getElementById('close-update-btn').addEventListener('click', () => {
-            notification.classList.remove('show');
-        });
-    }
-
-    // Auto-update function - copies code to clipboard for easy paste
-    async function autoUpdate() {
-        const updateBtn = document.getElementById('update-now-btn');
-        updateBtn.textContent = '⏳ جاري التحديث...';
-        updateBtn.disabled = true;
-
-        try {
-            // Use the URL that had the newest version
-            const updateURL = window.HARAJ_UPDATE_URL || 'https://raw.githubusercontent.com/mohammmedVDX/harajupdater/refs/heads/main/tampermonkey.script';
-            console.log('Fetching update from:', updateURL);
-            
-            const response = await fetch(updateURL);
-            if (!response.ok) throw new Error('Failed to fetch');
-            
-            const newScript = await response.text();
-            
-            // Copy to clipboard
-            await navigator.clipboard.writeText(newScript);
-            
-            // Show success
-            updateBtn.textContent = '✅ تم النسخ!';
-            updateBtn.style.background = '#10b981';
-            
-            // Show instructions
-            setTimeout(() => {
-                alert('✅ تم نسخ الكود الجديد!\n\nالخطوات:\n1. افتح Tampermonkey Dashboard\n2. اضغط على اسم السكريبت\n3. احذف الكود القديم (Ctrl+A ثم Delete)\n4. الصق الكود الجديد (Ctrl+V)\n5. احفظ (Ctrl+S)\n\nتم! 🎉');
-            }, 300);
-
-        } catch (error) {
-            console.error('Auto-update error:', error);
-            
-            // Fallback: open URL
-            const updateURL = window.HARAJ_UPDATE_URL || 'https://raw.githubusercontent.com/mohammmedVDX/harajupdater/refs/heads/main/tampermonkey.script';
-            window.open(updateURL, '_blank');
-            
-            updateBtn.textContent = '📋 انسخ الكود';
-            updateBtn.style.background = '#3b82f6';
-            
-            alert('افتح التبويب الجديد\nانسخ كل الكود (Ctrl+A ثم Ctrl+C)\nالصقه في Tampermonkey');
-        }
-    }
 
     // Create menu
     function createMenu() {
@@ -588,100 +447,44 @@
         document.getElementById('stop-btn').addEventListener('click', stopUpdating);
     }
 
-    // Check for updates from GitHub (runs automatically on load)
-    async function checkForUpdates() {
-        const currentVersion = '2.1.0';
-        const updateURLs = [
-            'https://raw.githubusercontent.com/mohammmedVDX/harajupdater/refs/heads/main/tampermonkey.script',
-            'https://raw.githubusercontent.com/mohammmedVDX/harajupdater/main/tampermonkey.script'
-        ];
-        
-        try {
-            let newestVersion = currentVersion;
-            let newestURL = null;
-            
-            // Check both URLs and find the newest version
-            for (const url of updateURLs) {
-                try {
-                    const response = await fetch(url);
-                    const scriptContent = await response.text();
-                    
-                    // Extract version from the fetched script
-                    const versionMatch = scriptContent.match(/@version\s+([\d.]+)/);
-                    if (versionMatch) {
-                        const remoteVersion = versionMatch[1];
-                        console.log(`Checking ${url.includes('refs/heads') ? 'refs/heads' : 'direct'} URL: v${remoteVersion}`);
-                        
-                        // If this version is newer than what we have, use it
-                        if (compareVersions(remoteVersion, newestVersion) > 0) {
-                            newestVersion = remoteVersion;
-                            newestURL = url;
-                        }
-                    }
-                } catch (error) {
-                    console.log(`Failed to check ${url}:`, error.message);
-                }
-            }
-            
-            // If we found a newer version, show notification
-            if (newestURL && compareVersions(newestVersion, currentVersion) > 0) {
-                console.log(`✅ Update available: v${newestVersion} (current: v${currentVersion})`);
-                
-                // Show update notification
-                const notification = document.getElementById('update-notification');
-                const versionText = document.getElementById('update-version-text');
-                versionText.textContent = `الإصدار الجديد: ${newestVersion} (الحالي: ${currentVersion})`;
-                notification.classList.add('show');
-                
-                // Store the URL for the update button
-                window.HARAJ_UPDATE_URL = newestURL;
-            } else {
-                console.log('✅ You have the latest version');
-            }
-        } catch (error) {
-            console.error('Update check error:', error);
-        }
-    }
-    
-    // Compare version numbers (returns 1 if v1 > v2, -1 if v1 < v2, 0 if equal)
-    function compareVersions(v1, v2) {
-        const parts1 = v1.split('.').map(Number);
-        const parts2 = v2.split('.').map(Number);
-        
-        for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
-            const part1 = parts1[i] || 0;
-            const part2 = parts2[i] || 0;
-            
-            if (part1 > part2) return 1;
-            if (part1 < part2) return -1;
-        }
-        
-        return 0;
-    }
-
     // Extract token from page
     function extractToken() {
         try {
-            // Method 1: Check cookies first - look for accessToken specifically
-            const cookies = document.cookie.split(';');
-            for (let cookie of cookies) {
-                const [name, value] = cookie.trim().split('=');
-                
-                // Check for accessToken or refreshToken specifically
-                if (name === 'accessToken' || name === 'refreshToken') {
-                    if (value && value.length > 20) {
-                        CONFIG.token = value;
-                        addLog('success', `تم استخراج التوكن من Cookie: ${name}`);
-                        console.log('✅ Token found:', name, '=', value.substring(0, 20) + '...');
-                        return true;
-                    }
+            // Method 1: Direct cookie parsing for accessToken and refreshToken
+            const cookieString = document.cookie;
+            console.log('🔍 Searching for token in cookies...');
+            
+            // Parse cookies properly
+            const cookies = {};
+            cookieString.split(';').forEach(cookie => {
+                const [name, ...rest] = cookie.trim().split('=');
+                if (name && rest.length > 0) {
+                    cookies[name] = rest.join('='); // Handle values with = in them
                 }
-                
-                // Check if it looks like a JWT token (has two dots)
+            });
+            
+            // Try accessToken first
+            if (cookies['accessToken'] && cookies['accessToken'].length > 20) {
+                CONFIG.token = cookies['accessToken'];
+                addLog('success', 'تم استخراج التوكن من accessToken');
+                console.log('✅ Token found: accessToken =', CONFIG.token.substring(0, 30) + '...');
+                return true;
+            }
+            
+            // Try refreshToken
+            if (cookies['refreshToken'] && cookies['refreshToken'].length > 20) {
+                CONFIG.token = cookies['refreshToken'];
+                addLog('success', 'تم استخراج التوكن من refreshToken');
+                console.log('✅ Token found: refreshToken =', CONFIG.token.substring(0, 30) + '...');
+                return true;
+            }
+            
+            // Method 2: Check all cookies for JWT tokens (has 3 parts separated by dots)
+            for (const [name, value] of Object.entries(cookies)) {
                 if (value && value.length > 20 && value.split('.').length === 3) {
                     CONFIG.token = value;
-                    addLog('success', `تم استخراج التوكن من Cookie: ${name}`);
-                    console.log('✅ Token found:', name, '=', value.substring(0, 20) + '...');
+                    addLog('success', `تم استخراج التوكن من ${name}`);
+                    console.log('✅ Token found:', name, '=', value.substring(0, 30) + '...');
                     return true;
                 }
             }
@@ -1073,14 +876,10 @@
         // Wait for page to load
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', () => {
-                createUpdateNotification();
                 createMenu();
-                checkForUpdates(); // Auto-check for updates on load
             });
         } else {
-            createUpdateNotification();
             createMenu();
-            checkForUpdates(); // Auto-check for updates on load
         }
 
         addLog('info', 'تم تحميل محدث حراج بنجاح');
