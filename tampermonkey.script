@@ -1,4 +1,1091 @@
+// ==UserScript==
+// @name         Haraj Auto Updater - محدث حراج التلقائي
+// @namespace    http://tampermonkey.net/
+// @version      2.1.2
+// @description  Auto update Haraj ads with configurable speed - تحديث إعلانات حراج تلقائياً
+// @author       You
+// @match        https://haraj.com.sa/*
+// @match        https://www.haraj.com.sa/*
+// @match        https://haraj.com/*
+// @match        https://www.haraj.com/*
+// @grant        GM_xmlhttpRequest
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_addStyle
+// @grant        GM_info
+// @updateURL    https://raw.githubusercontent.com/mohammmedVDX/harajupdater/refs/heads/main/tampermonkey.script
+// @downloadURL  https://raw.githubusercontent.com/mohammmedVDX/harajupdater/refs/heads/main/tampermonkey.script
+// @connect      raw.githubusercontent.com
+// @run-at       document-end
+// ==/UserScript==
 
-// @version      2.1.1
+(function() {
+    'use strict';
 
-  
+    // Configuration
+    const CONFIG = {
+        updateInterval: GM_getValue('updateInterval', 1000), // milliseconds between updates
+        adsPerBatch: GM_getValue('adsPerBatch', 6), // ads to update per batch
+        autoStart: GM_getValue('autoStart', false),
+        token: null,
+        graphqlEndpoint: 'https://graphql.haraj.com.sa/'
+    };
+
+    // State
+    let isRunning = false;
+    let currentIndex = 0;
+    let postIds = [];
+    let stats = {
+        total: 0,
+        updated: 0,
+        failed: 0,
+        skipped: 0
+    };
+
+    // Add CSS styles
+    GM_addStyle(`
+        #haraj-updater-menu {
+            position: fixed;
+            top: 100px;
+            right: 20px;
+            width: 320px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            z-index: 999999;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: white;
+            overflow: hidden;
+            direction: rtl;
+        }
+
+        #haraj-updater-header {
+            background: rgba(0,0,0,0.2);
+            padding: 15px;
+            cursor: move;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid rgba(255,255,255,0.1);
+        }
+
+        #haraj-updater-header h3 {
+            margin: 0;
+            font-size: 18px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        #haraj-updater-minimize {
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 18px;
+            transition: all 0.3s;
+        }
+
+        #haraj-updater-minimize:hover {
+            background: rgba(255,255,255,0.3);
+            transform: scale(1.1);
+        }
+
+        #haraj-updater-content {
+            padding: 20px;
+        }
+
+        .updater-section {
+            margin-bottom: 20px;
+        }
+
+        .updater-section label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .updater-input {
+            width: 100%;
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
+            background: rgba(255,255,255,0.9);
+            color: #333;
+            font-size: 14px;
+            box-sizing: border-box;
+            direction: rtl;
+        }
+
+        .updater-button {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 10px;
+        }
+
+        .updater-button.start {
+            background: #10b981;
+            color: white;
+        }
+
+        .updater-button.start:hover {
+            background: #059669;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(16,185,129,0.4);
+        }
+
+        .updater-button.stop {
+            background: #ef4444;
+            color: white;
+        }
+
+        .updater-button.stop:hover {
+            background: #dc2626;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(239,68,68,0.4);
+        }
+
+        .updater-button.load {
+            background: #3b82f6;
+            color: white;
+        }
+
+        .updater-button.load:hover {
+            background: #2563eb;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(59,130,246,0.4);
+        }
+
+        .updater-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .stat-box {
+            background: rgba(255,255,255,0.15);
+            padding: 12px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            opacity: 0.9;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #10b981, #3b82f6);
+            transition: width 0.3s;
+            border-radius: 4px;
+        }
+
+        .log-container {
+            background: rgba(0,0,0,0.3);
+            border-radius: 8px;
+            padding: 10px;
+            max-height: 150px;
+            overflow-y: auto;
+            font-size: 12px;
+            margin-top: 15px;
+        }
+
+        .log-entry {
+            padding: 5px;
+            margin-bottom: 5px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .log-entry.success {
+            background: rgba(16,185,129,0.2);
+        }
+
+        .log-entry.error {
+            background: rgba(239,68,68,0.2);
+        }
+
+        .log-entry.info {
+            background: rgba(59,130,246,0.2);
+        }
+
+        .log-icon {
+            font-size: 14px;
+        }
+
+        .minimized #haraj-updater-content {
+            display: none;
+        }
+
+        .minimized {
+            width: auto !important;
+        }
+
+        .speed-presets {
+            display: flex;
+            gap: 5px;
+            margin-top: 10px;
+        }
+
+        .speed-preset {
+            flex: 1;
+            padding: 8px;
+            background: rgba(255,255,255,0.2);
+            border: none;
+            border-radius: 6px;
+            color: white;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s;
+        }
+
+        .speed-preset:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
+        .speed-preset.active {
+            background: rgba(16,185,129,0.5);
+        }
+
+        #update-notification {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            color: white;
+            padding: 15px 20px;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            z-index: 9999999;
+            display: none;
+            align-items: center;
+            gap: 15px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            direction: rtl;
+            animation: slideDown 0.3s ease-out;
+        }
+
+        @keyframes slideDown {
+            from {
+                transform: translateX(-50%) translateY(-100px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(-50%) translateY(0);
+                opacity: 1;
+            }
+        }
+
+        #update-notification.show {
+            display: flex;
+        }
+
+        .update-text {
+            flex: 1;
+            font-size: 14px;
+        }
+
+        .update-version {
+            font-weight: bold;
+            font-size: 16px;
+        }
+
+        .update-btn {
+            background: white;
+            color: #d97706;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .update-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        .close-update {
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 18px;
+            line-height: 1;
+            transition: all 0.3s;
+        }
+
+        .close-update:hover {
+            background: rgba(255,255,255,0.3);
+        }
+    `);
+
+    // Create update notification
+    function createUpdateNotification() {
+        const notification = document.createElement('div');
+        notification.id = 'update-notification';
+        notification.innerHTML = `
+            <div class="update-text">
+                <div>🎉 يوجد تحديث جديد!</div>
+                <div class="update-version" id="update-version-text"></div>
+            </div>
+            <button class="update-btn" id="update-now-btn">تحديث الآن</button>
+            <button class="close-update" id="close-update-btn">×</button>
+        `;
+        document.body.appendChild(notification);
+
+        // Event listeners
+        document.getElementById('update-now-btn').addEventListener('click', autoUpdate);
+
+        document.getElementById('close-update-btn').addEventListener('click', () => {
+            notification.classList.remove('show');
+        });
+    }
+
+    // Auto-update function - copies code to clipboard for easy paste
+    async function autoUpdate() {
+        const updateBtn = document.getElementById('update-now-btn');
+        updateBtn.textContent = '⏳ جاري التحديث...';
+        updateBtn.disabled = true;
+
+        try {
+            // Use the URL that had the newest version
+            const updateURL = window.HARAJ_UPDATE_URL || 'https://raw.githubusercontent.com/mohammmedVDX/harajupdater/refs/heads/main/tampermonkey.script';
+            console.log('Fetching update from:', updateURL);
+            
+            const response = await fetch(updateURL);
+            if (!response.ok) throw new Error('Failed to fetch');
+            
+            const newScript = await response.text();
+            
+            // Copy to clipboard
+            await navigator.clipboard.writeText(newScript);
+            
+            // Show success
+            updateBtn.textContent = '✅ تم النسخ!';
+            updateBtn.style.background = '#10b981';
+            
+            // Show instructions
+            setTimeout(() => {
+                alert('✅ تم نسخ الكود الجديد!\n\nالخطوات:\n1. افتح Tampermonkey Dashboard\n2. اضغط على اسم السكريبت\n3. احذف الكود القديم (Ctrl+A ثم Delete)\n4. الصق الكود الجديد (Ctrl+V)\n5. احفظ (Ctrl+S)\n\nتم! 🎉');
+            }, 300);
+
+        } catch (error) {
+            console.error('Auto-update error:', error);
+            
+            // Fallback: open URL
+            const updateURL = window.HARAJ_UPDATE_URL || 'https://raw.githubusercontent.com/mohammmedVDX/harajupdater/refs/heads/main/tampermonkey.script';
+            window.open(updateURL, '_blank');
+            
+            updateBtn.textContent = '📋 انسخ الكود';
+            updateBtn.style.background = '#3b82f6';
+            
+            alert('افتح التبويب الجديد\nانسخ كل الكود (Ctrl+A ثم Ctrl+C)\nالصقه في Tampermonkey');
+        }
+    }
+
+    // Create menu
+    function createMenu() {
+        const menu = document.createElement('div');
+        menu.id = 'haraj-updater-menu';
+        menu.innerHTML = `
+            <div id="haraj-updater-header">
+                <h3>
+                    <span>🔄</span>
+                    <span>محدث حراج</span>
+                </h3>
+                <button id="haraj-updater-minimize">−</button>
+            </div>
+            <div id="haraj-updater-content">
+                <div class="updater-section">
+                    <label>⚡ السرعة (إعلانات/دفعة)</label>
+                    <input type="number" class="updater-input" id="ads-per-batch" value="${CONFIG.adsPerBatch}" min="1" max="20">
+                    <div class="speed-presets">
+                        <button class="speed-preset" data-speed="3">بطيء (3)</button>
+                        <button class="speed-preset active" data-speed="6">متوسط (6)</button>
+                        <button class="speed-preset" data-speed="10">سريع (10)</button>
+                    </div>
+                </div>
+
+                <div class="updater-section">
+                    <label>⏱️ الفاصل الزمني (ثانية)</label>
+                    <input type="number" class="updater-input" id="update-interval" value="${CONFIG.updateInterval / 1000}" min="0.5" max="10" step="0.5">
+                </div>
+
+                <div class="updater-section">
+                    <label>🔑 التوكن (اختياري - للإدخال اليدوي)</label>
+                    <input type="text" class="updater-input" id="manual-token" placeholder="الصق التوكن هنا إذا لزم الأمر">
+                </div>
+
+                <button class="updater-button load" id="load-posts-btn">
+                    📋 تحميل الإعلانات
+                </button>
+
+                <button class="updater-button start" id="start-btn" disabled>
+                    ▶️ بدء التحديث
+                </button>
+
+                <button class="updater-button stop" id="stop-btn" disabled>
+                    ⏸️ إيقاف
+                </button>
+
+                <div class="stats-grid">
+                    <div class="stat-box">
+                        <span class="stat-value" id="stat-total">0</span>
+                        <span class="stat-label">إجمالي</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-value" id="stat-updated">0</span>
+                        <span class="stat-label">محدث</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-value" id="stat-failed">0</span>
+                        <span class="stat-label">فشل</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-value" id="stat-remaining">0</span>
+                        <span class="stat-label">متبقي</span>
+                    </div>
+                </div>
+
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+                </div>
+
+                <div class="log-container" id="log-container"></div>
+            </div>
+        `;
+
+        document.body.appendChild(menu);
+        makeDraggable(menu);
+        attachEventListeners();
+    }
+
+    // Make menu draggable
+    function makeDraggable(element) {
+        const header = element.querySelector('#haraj-updater-header');
+        let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+
+        header.onmousedown = dragMouseDown;
+
+        function dragMouseDown(e) {
+            e.preventDefault();
+            pos3 = e.clientX;
+            pos4 = e.clientY;
+            document.onmouseup = closeDragElement;
+            document.onmousemove = elementDrag;
+        }
+
+        function elementDrag(e) {
+            e.preventDefault();
+            pos1 = pos3 - e.clientX;
+            pos2 = pos4 - e.clientY;
+            pos3 = e.clientX;
+            pos4 = e.clientY;
+            element.style.top = (element.offsetTop - pos2) + "px";
+            element.style.right = "auto";
+            element.style.left = (element.offsetLeft - pos1) + "px";
+        }
+
+        function closeDragElement() {
+            document.onmouseup = null;
+            document.onmousemove = null;
+        }
+    }
+
+    // Attach event listeners
+    function attachEventListeners() {
+        // Minimize button
+        document.getElementById('haraj-updater-minimize').addEventListener('click', () => {
+            const menu = document.getElementById('haraj-updater-menu');
+            menu.classList.toggle('minimized');
+            const btn = document.getElementById('haraj-updater-minimize');
+            btn.textContent = menu.classList.contains('minimized') ? '+' : '−';
+        });
+
+        // Speed presets
+        document.querySelectorAll('.speed-preset').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                document.querySelectorAll('.speed-preset').forEach(b => b.classList.remove('active'));
+                e.target.classList.add('active');
+                const speed = parseInt(e.target.dataset.speed);
+                document.getElementById('ads-per-batch').value = speed;
+                CONFIG.adsPerBatch = speed;
+                GM_setValue('adsPerBatch', speed);
+            });
+        });
+
+        // Ads per batch input
+        document.getElementById('ads-per-batch').addEventListener('change', (e) => {
+            CONFIG.adsPerBatch = parseInt(e.target.value);
+            GM_setValue('adsPerBatch', CONFIG.adsPerBatch);
+        });
+
+        // Update interval input
+        document.getElementById('update-interval').addEventListener('change', (e) => {
+            CONFIG.updateInterval = parseFloat(e.target.value) * 1000;
+            GM_setValue('updateInterval', CONFIG.updateInterval);
+        });
+
+        // Manual token input
+        document.getElementById('manual-token').addEventListener('input', (e) => {
+            const token = e.target.value.trim();
+            if (token.length > 10) {
+                CONFIG.token = token;
+                addLog('success', 'تم حفظ التوكن يدوياً');
+            }
+        });
+
+        // Load posts button
+        document.getElementById('load-posts-btn').addEventListener('click', loadPosts);
+
+        // Start button
+        document.getElementById('start-btn').addEventListener('click', startUpdating);
+
+        // Stop button
+        document.getElementById('stop-btn').addEventListener('click', stopUpdating);
+    }
+
+    // Check for updates from GitHub (runs automatically on load)
+    async function checkForUpdates() {
+        const currentVersion = '2.1.0';
+        const updateURLs = [
+            'https://raw.githubusercontent.com/mohammmedVDX/harajupdater/refs/heads/main/tampermonkey.script',
+            'https://raw.githubusercontent.com/mohammmedVDX/harajupdater/main/tampermonkey.script'
+        ];
+        
+        try {
+            let newestVersion = currentVersion;
+            let newestURL = null;
+            
+            // Check both URLs and find the newest version
+            for (const url of updateURLs) {
+                try {
+                    const response = await fetch(url);
+                    const scriptContent = await response.text();
+                    
+                    // Extract version from the fetched script
+                    const versionMatch = scriptContent.match(/@version\s+([\d.]+)/);
+                    if (versionMatch) {
+                        const remoteVersion = versionMatch[1];
+                        console.log(`Checking ${url.includes('refs/heads') ? 'refs/heads' : 'direct'} URL: v${remoteVersion}`);
+                        
+                        // If this version is newer than what we have, use it
+                        if (compareVersions(remoteVersion, newestVersion) > 0) {
+                            newestVersion = remoteVersion;
+                            newestURL = url;
+                        }
+                    }
+                } catch (error) {
+                    console.log(`Failed to check ${url}:`, error.message);
+                }
+            }
+            
+            // If we found a newer version, show notification
+            if (newestURL && compareVersions(newestVersion, currentVersion) > 0) {
+                console.log(`✅ Update available: v${newestVersion} (current: v${currentVersion})`);
+                
+                // Show update notification
+                const notification = document.getElementById('update-notification');
+                const versionText = document.getElementById('update-version-text');
+                versionText.textContent = `الإصدار الجديد: ${newestVersion} (الحالي: ${currentVersion})`;
+                notification.classList.add('show');
+                
+                // Store the URL for the update button
+                window.HARAJ_UPDATE_URL = newestURL;
+            } else {
+                console.log('✅ You have the latest version');
+            }
+        } catch (error) {
+            console.error('Update check error:', error);
+        }
+    }
+    
+    // Compare version numbers (returns 1 if v1 > v2, -1 if v1 < v2, 0 if equal)
+    function compareVersions(v1, v2) {
+        const parts1 = v1.split('.').map(Number);
+        const parts2 = v2.split('.').map(Number);
+        
+        for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+            const part1 = parts1[i] || 0;
+            const part2 = parts2[i] || 0;
+            
+            if (part1 > part2) return 1;
+            if (part1 < part2) return -1;
+        }
+        
+        return 0;
+    }
+
+    // Extract token from page
+    function extractToken() {
+        try {
+            // Method 1: Check cookies first - look for accessToken specifically
+            const cookies = document.cookie.split(';');
+            for (let cookie of cookies) {
+                const [name, value] = cookie.trim().split('=');
+                
+                // Check for accessToken or refreshToken specifically
+                if (name === 'accessToken' || name === 'refreshToken') {
+                    if (value && value.length > 20) {
+                        CONFIG.token = value;
+                        addLog('success', `تم استخراج التوكن من Cookie: ${name}`);
+                        console.log('✅ Token found:', name, '=', value.substring(0, 20) + '...');
+                        return true;
+                    }
+                }
+                
+                // Check if it looks like a JWT token (has two dots)
+                if (value && value.length > 20 && value.split('.').length === 3) {
+                    CONFIG.token = value;
+                    addLog('success', `تم استخراج التوكن من Cookie: ${name}`);
+                    console.log('✅ Token found:', name, '=', value.substring(0, 20) + '...');
+                    return true;
+                }
+            }
+
+            // Method 2: Try to get token from localStorage with various key names
+            const possibleKeys = ['token', 'authToken', 'auth_token', 'userToken', 'user_token', 'accessToken', 'access_token'];
+            
+            for (let key of possibleKeys) {
+                const tokenData = localStorage.getItem(key);
+                if (tokenData) {
+                    try {
+                        const parsed = JSON.parse(tokenData);
+                        CONFIG.token = parsed.token || parsed.accessToken || parsed.access_token || parsed;
+                        if (CONFIG.token && typeof CONFIG.token === 'string' && CONFIG.token.length > 10) {
+                            addLog('success', 'تم استخراج التوكن من localStorage');
+                            return true;
+                        }
+                    } catch {
+                        // If not JSON, use as is
+                        if (tokenData.length > 10) {
+                            CONFIG.token = tokenData;
+                            addLog('success', 'تم استخراج التوكن من localStorage');
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            // Method 3: Check all localStorage items for JWT-like tokens
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                const value = localStorage.getItem(key);
+                
+                // Check if value looks like a JWT token (has two dots)
+                if (value && typeof value === 'string' && value.split('.').length === 3) {
+                    CONFIG.token = value;
+                    addLog('success', `تم استخراج التوكن من ${key}`);
+                    return true;
+                }
+                
+                // Check if value is JSON containing a token
+                try {
+                    const parsed = JSON.parse(value);
+                    if (parsed.token || parsed.accessToken || parsed.access_token) {
+                        CONFIG.token = parsed.token || parsed.accessToken || parsed.access_token;
+                        if (CONFIG.token && typeof CONFIG.token === 'string' && CONFIG.token.length > 10) {
+                            addLog('success', `تم استخراج التوكن من ${key}`);
+                            return true;
+                        }
+                    }
+                } catch {
+                    // Not JSON, continue
+                }
+            }
+
+            // Method 4: Try to extract from sessionStorage
+            for (let i = 0; i < sessionStorage.length; i++) {
+                const key = sessionStorage.key(i);
+                const value = sessionStorage.getItem(key);
+                
+                // Check if value looks like a JWT token
+                if (value && typeof value === 'string' && value.split('.').length === 3) {
+                    CONFIG.token = value;
+                    addLog('success', `تم استخراج التوكن من sessionStorage: ${key}`);
+                    return true;
+                }
+                
+                // Check if value is JSON containing a token
+                try {
+                    const parsed = JSON.parse(value);
+                    if (parsed.token || parsed.accessToken || parsed.access_token) {
+                        CONFIG.token = parsed.token || parsed.accessToken || parsed.access_token;
+                        if (CONFIG.token && typeof CONFIG.token === 'string' && CONFIG.token.length > 10) {
+                            addLog('success', `تم استخراج التوكن من sessionStorage: ${key}`);
+                            return true;
+                        }
+                    }
+                } catch {
+                    // Not JSON, continue
+                }
+            }
+
+            addLog('error', 'لم يتم العثور على التوكن. افتح DevTools (F12) > Application > Cookies وانسخ التوكن');
+            console.log('=== للمساعدة في إيجاد التوكن ===');
+            console.log('Cookies:', document.cookie);
+            console.log('localStorage keys:', Object.keys(localStorage));
+            console.log('sessionStorage keys:', Object.keys(sessionStorage));
+            return false;
+        } catch (e) {
+            console.error('Error extracting token:', e);
+            addLog('error', `خطأ في استخراج التوكن: ${e.message}`);
+            return false;
+        }
+    }
+
+    // Load posts from page
+    async function loadPosts() {
+        addLog('info', 'جاري تحميل جميع الإعلانات...');
+        document.getElementById('load-posts-btn').disabled = true;
+        document.getElementById('load-posts-btn').textContent = '⏳ جاري التحميل...';
+        
+        let previousCount = 0;
+        let currentCount = 0;
+        let attempts = 0;
+        const maxAttempts = 50; // Maximum attempts to prevent infinite loop
+        
+        // Function to scroll to bottom
+        const scrollToBottom = () => {
+            window.scrollTo(0, document.body.scrollHeight);
+        };
+        
+        // Function to scroll to top
+        const scrollToTop = () => {
+            window.scrollTo(0, 0);
+        };
+        
+        // Function to click load more button
+        const clickLoadMore = () => {
+            const loadMoreBtn = document.querySelector('[data-testid="posts-load-more"]');
+            if (loadMoreBtn && !loadMoreBtn.disabled) {
+                loadMoreBtn.click();
+                return true;
+            }
+            return false;
+        };
+        
+        // Function to count current posts
+        const countPosts = () => {
+            return document.querySelectorAll('[data-test-postid]').length;
+        };
+        
+        // Start from top
+        scrollToTop();
+        await sleep(500);
+        
+        // Keep loading until no more posts
+        while (attempts < maxAttempts) {
+            attempts++;
+            
+            // Scroll to bottom to trigger lazy loading
+            scrollToBottom();
+            await sleep(1000);
+            
+            // Try to click load more button
+            const clicked = clickLoadMore();
+            if (clicked) {
+                addLog('info', `تم النقر على "مشاهدة المزيد" - المحاولة ${attempts}`);
+                await sleep(2000); // Wait for posts to load
+            }
+            
+            // Count posts
+            currentCount = countPosts();
+            
+            // If count hasn't changed, we might be done
+            if (currentCount === previousCount) {
+                // Try one more time to be sure
+                scrollToBottom();
+                await sleep(1000);
+                const finalClick = clickLoadMore();
+                if (!finalClick) {
+                    // No more load button, we're done
+                    break;
+                }
+                await sleep(2000);
+                currentCount = countPosts();
+                if (currentCount === previousCount) {
+                    break;
+                }
+            }
+            
+            addLog('info', `تم تحميل ${currentCount} إعلان حتى الآن...`);
+            previousCount = currentCount;
+        }
+        
+        // Scroll back to top
+        scrollToTop();
+        await sleep(500);
+        
+        // Final collection
+        collectPostIds();
+        
+        document.getElementById('load-posts-btn').disabled = false;
+        document.getElementById('load-posts-btn').textContent = '📋 تحميل الإعلانات';
+    }
+    
+    // Helper sleep function
+    function sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    // Collect post IDs from page
+    function collectPostIds() {
+        postIds = [];
+        const postElements = document.querySelectorAll('[data-test-postid]');
+        
+        postElements.forEach(el => {
+            const postId = el.getAttribute('data-test-postid');
+            if (postId) {
+                postIds.push(parseInt(postId));
+            }
+        });
+
+        stats.total = postIds.length;
+        stats.updated = 0;
+        stats.failed = 0;
+        stats.skipped = 0;
+        currentIndex = 0;
+
+        updateStats();
+
+        if (postIds.length > 0) {
+            addLog('success', `تم تحميل ${postIds.length} إعلان`);
+            document.getElementById('start-btn').disabled = false;
+        } else {
+            addLog('error', 'لم يتم العثور على إعلانات');
+        }
+    }
+
+    // Start updating
+    async function startUpdating() {
+        // Check if manual token was entered
+        const manualToken = document.getElementById('manual-token').value.trim();
+        if (manualToken.length > 10) {
+            CONFIG.token = manualToken;
+            addLog('success', 'استخدام التوكن اليدوي');
+        } else if (!CONFIG.token || !extractToken()) {
+            addLog('error', 'فشل في استخراج التوكن. الرجاء إدخال التوكن يدوياً أو التحقق من تسجيل الدخول');
+            
+            // Log available storage for debugging
+            console.log('=== DEBUG: Available Storage ===');
+            console.log('localStorage keys:', Object.keys(localStorage));
+            console.log('sessionStorage keys:', Object.keys(sessionStorage));
+            console.log('cookies:', document.cookie);
+            
+            return;
+        }
+
+        isRunning = true;
+        document.getElementById('start-btn').disabled = true;
+        document.getElementById('stop-btn').disabled = false;
+        document.getElementById('load-posts-btn').disabled = true;
+
+        addLog('info', 'بدء التحديث...');
+        
+        await updateBatch();
+    }
+
+    // Stop updating
+    function stopUpdating() {
+        isRunning = false;
+        document.getElementById('start-btn').disabled = false;
+        document.getElementById('stop-btn').disabled = true;
+        document.getElementById('load-posts-btn').disabled = false;
+        addLog('info', 'تم إيقاف التحديث');
+    }
+
+    // Update batch of ads
+    async function updateBatch() {
+        if (!isRunning || currentIndex >= postIds.length) {
+            if (currentIndex >= postIds.length) {
+                addLog('success', '✅ اكتمل التحديث!');
+                playFinishSound();
+                stopUpdating();
+            }
+            return;
+        }
+
+        const batch = postIds.slice(currentIndex, currentIndex + CONFIG.adsPerBatch);
+        
+        for (let postId of batch) {
+            if (!isRunning) break;
+            await updatePost(postId);
+        }
+
+        currentIndex += CONFIG.adsPerBatch;
+        updateStats();
+
+        if (isRunning && currentIndex < postIds.length) {
+            setTimeout(() => updateBatch(), CONFIG.updateInterval);
+        } else if (currentIndex >= postIds.length) {
+            addLog('success', '✅ اكتمل التحديث!');
+            playFinishSound();
+            stopUpdating();
+        }
+    }
+    
+    // Play finish sound
+    function playFinishSound() {
+        try {
+            // Create audio context
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            
+            // Success sound: three ascending notes
+            const playNote = (frequency, startTime, duration) => {
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                
+                oscillator.frequency.value = frequency;
+                oscillator.type = 'sine';
+                
+                gainNode.gain.setValueAtTime(0.3, startTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+                
+                oscillator.start(startTime);
+                oscillator.stop(startTime + duration);
+            };
+            
+            const now = audioContext.currentTime;
+            playNote(523.25, now, 0.2);        // C5
+            playNote(659.25, now + 0.2, 0.2);  // E5
+            playNote(783.99, now + 0.4, 0.4);  // G5
+            
+            addLog('success', '🔔 تم تشغيل صوت الإنتهاء');
+        } catch (e) {
+            console.log('Could not play sound:', e);
+        }
+    }
+
+    // Update single post
+    async function updatePost(postId) {
+        try {
+            const response = await fetch(CONFIG.graphqlEndpoint + '?queryName=updatePost&clientId=ymZn1c5V-kFw1-HIfT-5zEd-mEHP5dmkhQ6Rv3&version=N0.0.1', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    query: `mutation updatePost($token: String!, $id: Int!) {
+                        updatePost(token: $token, id: $id) {
+                            status
+                            notValidReason
+                        }
+                    }`,
+                    variables: {
+                        token: CONFIG.token,
+                        id: postId
+                    }
+                })
+            });
+
+            const data = await response.json();
+            
+            if (data.data?.updatePost?.status === 'success' || response.ok) {
+                stats.updated++;
+                addLog('success', `✓ تم تحديث الإعلان #${postId}`);
+            } else {
+                stats.failed++;
+                addLog('error', `✗ فشل تحديث الإعلان #${postId}`);
+            }
+        } catch (error) {
+            stats.failed++;
+            addLog('error', `✗ خطأ في الإعلان #${postId}: ${error.message}`);
+        }
+    }
+
+    // Update statistics
+    function updateStats() {
+        document.getElementById('stat-total').textContent = stats.total;
+        document.getElementById('stat-updated').textContent = stats.updated;
+        document.getElementById('stat-failed').textContent = stats.failed;
+        document.getElementById('stat-remaining').textContent = Math.max(0, stats.total - currentIndex);
+
+        const progress = stats.total > 0 ? (currentIndex / stats.total) * 100 : 0;
+        document.getElementById('progress-fill').style.width = progress + '%';
+    }
+
+    // Add log entry
+    function addLog(type, message) {
+        const logContainer = document.getElementById('log-container');
+        const entry = document.createElement('div');
+        entry.className = `log-entry ${type}`;
+        
+        const icon = type === 'success' ? '✓' : type === 'error' ? '✗' : 'ℹ';
+        entry.innerHTML = `<span class="log-icon">${icon}</span><span>${message}</span>`;
+        
+        logContainer.insertBefore(entry, logContainer.firstChild);
+        
+        // Keep only last 50 entries
+        while (logContainer.children.length > 50) {
+            logContainer.removeChild(logContainer.lastChild);
+        }
+    }
+
+    // Initialize
+    function init() {
+        // Wait for page to load
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+                createUpdateNotification();
+                createMenu();
+                checkForUpdates(); // Auto-check for updates on load
+            });
+        } else {
+            createUpdateNotification();
+            createMenu();
+            checkForUpdates(); // Auto-check for updates on load
+        }
+
+        addLog('info', 'تم تحميل محدث حراج بنجاح');
+    }
+
+    // Start the script
+    init();
+})();
