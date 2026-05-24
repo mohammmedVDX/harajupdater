@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Haraj Auto Updater - محدث حراج التلقائي
 // @namespace    http://tampermonkey.net/
-// @version      1.7.0
+// @version      1.8.0
 // @description  Auto update Haraj ads with configurable speed - تحديث إعلانات حراج تلقائياً
 // @author       You
 // @match        https://haraj.com.sa/*
@@ -292,7 +292,7 @@
             <div id="haraj-updater-header">
                 <h3>
                     <span>🔄</span>
-                    <span>محدث حراج</span>
+                    <span>محدث حراج 1.8.0</span>
                 </h3>
                 <button id="haraj-updater-minimize">−</button>
             </div>
@@ -319,6 +319,10 @@
 
                 <button class="updater-button load" id="load-posts-btn">
                     📋 تحميل الإعلانات
+                </button>
+
+                <button class="updater-button" id="check-update-btn" style="background: #f59e0b;">
+                    🔄 تحقق من التحديثات
                 </button>
 
                 <button class="updater-button start" id="start-btn" disabled>
@@ -439,11 +443,74 @@
         // Load posts button
         document.getElementById('load-posts-btn').addEventListener('click', loadPosts);
 
+        // Check update button
+        document.getElementById('check-update-btn').addEventListener('click', checkForUpdates);
+
         // Start button
         document.getElementById('start-btn').addEventListener('click', startUpdating);
 
         // Stop button
         document.getElementById('stop-btn').addEventListener('click', stopUpdating);
+    }
+
+    // Check for updates from GitHub
+    async function checkForUpdates() {
+        const currentVersion = '1.7.0';
+        const updateURL = 'https://raw.githubusercontent.com/mohammmedVDX/harajupdater/main/tampermonkey.script';
+        
+        addLog('info', 'جاري التحقق من التحديثات...');
+        document.getElementById('check-update-btn').disabled = true;
+        document.getElementById('check-update-btn').textContent = '⏳ جاري التحقق...';
+        
+        try {
+            const response = await fetch(updateURL);
+            const scriptContent = await response.text();
+            
+            // Extract version from the fetched script
+            const versionMatch = scriptContent.match(/@version\s+([\d.]+)/);
+            if (versionMatch) {
+                const remoteVersion = versionMatch[1];
+                
+                addLog('info', `الإصدار الحالي: ${currentVersion}`);
+                addLog('info', `الإصدار على GitHub: ${remoteVersion}`);
+                
+                if (compareVersions(remoteVersion, currentVersion) > 0) {
+                    addLog('success', `✨ يوجد تحديث جديد! الإصدار ${remoteVersion}`);
+                    
+                    // Show update prompt
+                    if (confirm(`يوجد تحديث جديد!\n\nالإصدار الحالي: ${currentVersion}\nالإصدار الجديد: ${remoteVersion}\n\nهل تريد فتح صفحة التحديث؟`)) {
+                        window.open(updateURL, '_blank');
+                        addLog('info', 'انسخ الكود الجديد والصقه في Tampermonkey');
+                    }
+                } else {
+                    addLog('success', '✅ أنت تستخدم أحدث إصدار!');
+                }
+            } else {
+                addLog('error', 'فشل في قراءة رقم الإصدار من GitHub');
+            }
+        } catch (error) {
+            addLog('error', `خطأ في التحقق من التحديثات: ${error.message}`);
+            console.error('Update check error:', error);
+        }
+        
+        document.getElementById('check-update-btn').disabled = false;
+        document.getElementById('check-update-btn').textContent = '🔄 تحقق من التحديثات';
+    }
+    
+    // Compare version numbers (returns 1 if v1 > v2, -1 if v1 < v2, 0 if equal)
+    function compareVersions(v1, v2) {
+        const parts1 = v1.split('.').map(Number);
+        const parts2 = v2.split('.').map(Number);
+        
+        for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+            const part1 = parts1[i] || 0;
+            const part2 = parts2[i] || 0;
+            
+            if (part1 > part2) return 1;
+            if (part1 < part2) return -1;
+        }
+        
+        return 0;
     }
 
     // Extract token from page
