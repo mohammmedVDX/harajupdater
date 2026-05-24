@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Haraj Auto Updater - محدث حراج التلقائي
 // @namespace    http://tampermonkey.net/
-// @version      2.2.1
+// @version      2.2.2
 // @description  Auto update Haraj ads with configurable speed - تحديث إعلانات حراج تلقائياً
 // @author       You
 // @match        https://haraj.com.sa/*
@@ -452,7 +452,7 @@
         try {
             // Method 1: Direct cookie parsing for accessToken and refreshToken
             const cookieString = document.cookie;
-            console.log('🔍 Searching for token in cookies...');
+            console.log('🔍 Raw cookies:', cookieString);
             
             // Parse cookies properly
             const cookies = {};
@@ -463,28 +463,42 @@
                 }
             });
             
+            console.log('📦 Parsed cookies:', Object.keys(cookies));
+            
             // Try accessToken first
-            if (cookies['accessToken'] && cookies['accessToken'].length > 20) {
-                CONFIG.token = cookies['accessToken'];
-                addLog('success', 'تم استخراج التوكن من accessToken');
-                console.log('✅ Token found: accessToken =', CONFIG.token.substring(0, 30) + '...');
-                return true;
+            if (cookies['accessToken']) {
+                console.log('✅ accessToken found, length:', cookies['accessToken'].length);
+                if (cookies['accessToken'].length > 20) {
+                    CONFIG.token = cookies['accessToken'];
+                    addLog('success', 'تم استخراج التوكن من accessToken');
+                    console.log('✅ Token set:', CONFIG.token.substring(0, 30) + '...');
+                    return true;
+                }
+            } else {
+                console.log('❌ accessToken not found in cookies');
             }
             
             // Try refreshToken
-            if (cookies['refreshToken'] && cookies['refreshToken'].length > 20) {
-                CONFIG.token = cookies['refreshToken'];
-                addLog('success', 'تم استخراج التوكن من refreshToken');
-                console.log('✅ Token found: refreshToken =', CONFIG.token.substring(0, 30) + '...');
-                return true;
+            if (cookies['refreshToken']) {
+                console.log('✅ refreshToken found, length:', cookies['refreshToken'].length);
+                if (cookies['refreshToken'].length > 20) {
+                    CONFIG.token = cookies['refreshToken'];
+                    addLog('success', 'تم استخراج التوكن من refreshToken');
+                    console.log('✅ Token set:', CONFIG.token.substring(0, 30) + '...');
+                    return true;
+                }
+            } else {
+                console.log('❌ refreshToken not found in cookies');
             }
             
             // Method 2: Check all cookies for JWT tokens (has 3 parts separated by dots)
+            console.log('🔍 Scanning all cookies for JWT tokens...');
             for (const [name, value] of Object.entries(cookies)) {
+                console.log(`  - ${name}: ${value.substring(0, 20)}... (length: ${value.length}, dots: ${value.split('.').length - 1})`);
                 if (value && value.length > 20 && value.split('.').length === 3) {
                     CONFIG.token = value;
                     addLog('success', `تم استخراج التوكن من ${name}`);
-                    console.log('✅ Token found:', name, '=', value.substring(0, 30) + '...');
+                    console.log('✅ Token set from', name, ':', value.substring(0, 30) + '...');
                     return true;
                 }
             }
