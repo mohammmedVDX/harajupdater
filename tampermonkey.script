@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Haraj Auto Updater - محدث حراج التلقائي
 // @namespace    http://tampermonkey.net/
-// @version      2.4.1
+// @version      2.4.3
 // @description  Auto update Haraj ads with configurable speed - تحديث إعلانات حراج تلقائياً
 // @author       You
 // @match        https://haraj.com.sa/*
@@ -846,17 +846,23 @@
             });
 
             const data = await response.json();
+            console.log(`Post ${postId} response:`, data);
             
-            if (data.data?.updatePost?.status === 'success' || response.ok) {
+            // Check if update was successful
+            if (data.data?.updatePost?.status === true || data.data?.updatePost?.status === 'success') {
                 stats.updated++;
                 addLog('success', `✓ تم تحديث الإعلان #${postId}`);
             } else {
+                // Update failed - show the reason
                 stats.failed++;
-                addLog('error', `✗ فشل تحديث الإعلان #${postId}`);
+                const reason = data.data?.updatePost?.notValidReason || 'فشل التحديث';
+                addLog('error', `✗ الإعلان #${postId}: ${reason}`);
+                console.error(`Failed to update post ${postId}:`, reason);
             }
         } catch (error) {
             stats.failed++;
             addLog('error', `✗ خطأ في الإعلان #${postId}: ${error.message}`);
+            console.error(`Error updating post ${postId}:`, error);
         }
     }
 
