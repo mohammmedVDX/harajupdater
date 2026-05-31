@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Haraj Auto Updater - محدث حراج التلقائي
 // @namespace    http://tampermonkey.net/
-// @version      4.4.1
+// @version      4.5.0
 // @description  Auto update Haraj ads - تحديث إعلانات حراج تلقائياً
 // @author       You
 // @match        https://haraj.com.sa/*
@@ -373,48 +373,52 @@
     }
 
     function extractToken() {
-        const cookies = {};
-        document.cookie.split(';').forEach(cookie => {
-            const [name, ...rest] = cookie.trim().split('=');
-            if (name && rest.length > 0) {
-                // Decode URL-encoded cookies
-                cookies[name] = decodeURIComponent(rest.join('='));
+        // Get raw cookie string
+        const cookieString = document.cookie;
+        console.log('Raw cookies:', cookieString);
+        
+        // Try to extract accessToken with proper decoding
+        const accessTokenMatch = cookieString.match(/accessToken=([^;]+)/);
+        if (accessTokenMatch) {
+            const rawToken = accessTokenMatch[1];
+            const decodedToken = decodeURIComponent(rawToken);
+            
+            console.log('Raw accessToken:', rawToken);
+            console.log('Decoded accessToken:', decodedToken);
+            console.log('Token length:', decodedToken.length);
+            
+            // Check if it's a valid JWT (3 parts separated by dots)
+            const parts = decodedToken.split('.');
+            if (parts.length === 3) {
+                CONFIG.token = decodedToken;
+                addLog('success', `✓ استخدام accessToken (${parts[0].substring(0, 10)}...)`);
+                console.log('✅ Valid JWT token extracted');
+                return true;
+            } else {
+                console.error('❌ Token does not have 3 parts:', parts.length);
             }
-        });
-        
-        console.log('Available cookies:', Object.keys(cookies));
-        
-        // Try accessToken first
-        if (cookies['accessToken'] && cookies['accessToken'].length > 20) {
-            CONFIG.token = cookies['accessToken'];
-            addLog('success', `✓ استخدام accessToken`);
-            console.log('Using accessToken (decoded):', CONFIG.token.substring(0, 50) + '...');
-            console.log('Full token:', CONFIG.token);
-            return true;
         }
         
         // Try refreshToken
-        if (cookies['refreshToken'] && cookies['refreshToken'].length > 20) {
-            CONFIG.token = cookies['refreshToken'];
-            addLog('success', `✓ استخدام refreshToken`);
-            console.log('Using refreshToken (decoded):', CONFIG.token.substring(0, 50) + '...');
-            console.log('Full token:', CONFIG.token);
-            return true;
-        }
-        
-        // Try any JWT-looking token
-        for (const [key, value] of Object.entries(cookies)) {
-            if (value.startsWith('eyJ') && value.length > 50) {
-                CONFIG.token = value;
-                addLog('success', `✓ استخدام ${key}`);
-                console.log(`Using ${key}:`, value.substring(0, 50) + '...');
-                console.log('Full token:', value);
+        const refreshTokenMatch = cookieString.match(/refreshToken=([^;]+)/);
+        if (refreshTokenMatch) {
+            const rawToken = refreshTokenMatch[1];
+            const decodedToken = decodeURIComponent(rawToken);
+            
+            console.log('Raw refreshToken:', rawToken);
+            console.log('Decoded refreshToken:', decodedToken);
+            
+            const parts = decodedToken.split('.');
+            if (parts.length === 3) {
+                CONFIG.token = decodedToken;
+                addLog('success', `✓ استخدام refreshToken`);
+                console.log('✅ Valid JWT token extracted from refreshToken');
                 return true;
             }
         }
         
         addLog('error', '✗ لم يتم العثور على توكن صالح');
-        console.error('No valid token found. Available cookies:', cookies);
+        console.error('❌ No valid JWT token found in cookies');
         return false;
     }
 
