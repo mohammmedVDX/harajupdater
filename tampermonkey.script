@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Haraj Auto Updater - محدث حراج التلقائي
 // @namespace    http://tampermonkey.net/
-// @version      2.4.3
+// @version      3.2.0
 // @description  Auto update Haraj ads with configurable speed - تحديث إعلانات حراج تلقائياً
 // @author       You
 // @match        https://haraj.com.sa/*
@@ -16,6 +16,7 @@
 // @updateURL    https://raw.githubusercontent.com/mohammmedVDX/harajupdater/refs/heads/main/tampermonkey.script
 // @downloadURL  https://raw.githubusercontent.com/mohammmedVDX/harajupdater/refs/heads/main/tampermonkey.script
 // @connect      raw.githubusercontent.com
+// @connect      api.haraj.com.sa
 // @run-at       document-end
 // ==/UserScript==
 
@@ -28,30 +29,126 @@
         adsPerBatch: GM_getValue('adsPerBatch', 6), // ads to update per batch
         autoStart: GM_getValue('autoStart', false),
         token: null,
-        graphqlEndpoint: 'https://graphql.haraj.com.sa/'
+        graphqlEndpoint: 'https://graphql.haraj.com.sa/',
+        quickReplies: GM_getValue('quickReplies', [])
     };
 
     // State
     let isRunning = false;
+    let isLiking = false;
     let currentIndex = 0;
     let postIds = [];
+    let postsData = []; // Store full post data including images and titles
     let stats = {
         total: 0,
         updated: 0,
         failed: 0,
-        skipped: 0
+        skipped: 0,
+        liked: 0
+    };
+
+    // Expose functions to window IMMEDIATELY (before anything else)
+    window.harajUpdater = {
+        removeQuickReply: function(index) {
+            try {
+                CONFIG.quickReplies.splice(index, 1);
+                GM_setValue('quickReplies', CONFIG.quickReplies);
+                renderQuickReplyList();
+                renderQuickReplyPanel();
+                addLog('info', 'تم حذف الرد السريع');
+            } catch (error) {
+                console.error('Error removing quick reply:', error);
+            }
+        },
+        insertQuickReply: function(index) {
+            try {
+                const reply = CONFIG.quickReplies[index];
+                if (!reply) return;
+
+                // Try to find chat textarea
+                const textarea = document.querySelector('textarea[id*="chat"], textarea[placeholder*="رسالة"], #chat-textbox');
+                
+                if (textarea) {
+                    textarea.value = reply;
+                    textarea.focus();
+                    
+                    // Trigger input event to update any React/Vue state
+                    const event = new Event('input', { bubbles: true });
+                    textarea.dispatchEvent(event);
+                    
+                    console.log('✅ Quick reply inserted');
+                } else {
+                    // Copy to clipboard as fallback
+                    navigator.clipboard.writeText(reply).then(() => {
+                        console.log('✅ Quick reply copied to clipboard');
+                    });
+                }
+            } catch (error) {
+                console.error('Error inserting quick reply:', error);
+            }
+        },
+        sendQuickReply: async function(text) {
+            try {
+                // Find the chat textarea
+                const textarea = document.querySelector('textarea[id*="chat"]') || 
+                                document.querySelector('textarea[placeholder*="رسالة"]') ||
+                                document.querySelector('#chat-textbox');
+                
+                if (!textarea) {
+                    alert('❌ لم يتم العثور على مربع المحادثة');
+                    return;
+                }
+                
+                // Insert text
+                textarea.value = text;
+                textarea.focus();
+                
+                // Trigger input event (for React/Vue)
+                const inputEvent = new Event('input', { bubbles: true });
+                textarea.dispatchEvent(inputEvent);
+                
+                // Trigger change event
+                const changeEvent = new Event('change', { bubbles: true });
+                textarea.dispatchEvent(changeEvent);
+                
+                // Wait a bit for the UI to update
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+                // Try to find and click the send button
+                const sendButton = document.querySelector('button[type="submit"]') ||
+                                  document.querySelector('button[aria-label*="send"]') ||
+                                  document.querySelector('button[aria-label*="إرسال"]') ||
+                                  Array.from(document.querySelectorAll('button')).find(btn => {
+                                      const text = btn.textContent.toLowerCase();
+                                      return text.includes('send') || text.includes('إرسال');
+                                  });
+                
+                if (sendButton && !sendButton.disabled) {
+                    sendButton.click();
+                    console.log('✅ Message sent successfully');
+                } else {
+                    // If no send button found, just show the text is ready
+                    console.log('⚠️ Text inserted, please press Enter or click Send');
+                    alert('✅ تم إدراج النص. اضغط Enter أو زر الإرسال');
+                }
+            } catch (error) {
+                console.error('Error sending message:', error);
+                alert('❌ حدث خطأ أثناء إرسال الرسالة');
+            }
+        }
     };
 
     // Add CSS styles
     GM_addStyle(`
         #haraj-updater-menu {
             position: fixed;
-            top: 100px;
-            right: 20px;
+            top: 80px;
+            right: 15px;
             width: 320px;
+            max-width: 90vw;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 15px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
             z-index: 999999;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             color: white;
@@ -59,34 +156,60 @@
             direction: rtl;
         }
 
+        @media (max-width: 768px) {
+            #haraj-updater-menu {
+                width: 95vw;
+                top: 10px;
+                right: 2.5vw;
+            }
+        }
+
         #haraj-updater-header {
             background: rgba(0,0,0,0.2);
-            padding: 15px;
+            padding: 12px 15px;
             cursor: move;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            border-bottom: 2px solid rgba(255,255,255,0.1);
+            border-bottom: 1px solid rgba(255,255,255,0.1);
         }
 
         #haraj-updater-header h3 {
             margin: 0;
-            font-size: 18px;
+            font-size: 16px;
             font-weight: bold;
             display: flex;
             align-items: center;
             gap: 8px;
         }
 
+        .token-status {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+
+        .token-status.valid {
+            background: #10b981;
+            box-shadow: 0 0 8px #10b981;
+        }
+
+        .token-status.invalid {
+            background: #ef4444;
+            box-shadow: 0 0 8px #ef4444;
+        }
+
         #haraj-updater-minimize {
             background: rgba(255,255,255,0.2);
             border: none;
             color: white;
-            width: 30px;
-            height: 30px;
+            width: 26px;
+            height: 26px;
             border-radius: 50%;
             cursor: pointer;
-            font-size: 18px;
+            font-size: 16px;
             transition: all 0.3s;
         }
 
@@ -96,42 +219,44 @@
         }
 
         #haraj-updater-content {
-            padding: 20px;
+            padding: 15px;
+            max-height: 70vh;
+            overflow-y: auto;
         }
 
         .updater-section {
-            margin-bottom: 20px;
+            margin-bottom: 12px;
         }
 
         .updater-section label {
             display: block;
-            margin-bottom: 8px;
+            margin-bottom: 6px;
             font-weight: 600;
-            font-size: 14px;
+            font-size: 13px;
         }
 
         .updater-input {
             width: 100%;
-            padding: 10px;
+            padding: 8px 10px;
             border: none;
-            border-radius: 8px;
+            border-radius: 6px;
             background: rgba(255,255,255,0.9);
             color: #333;
-            font-size: 14px;
+            font-size: 13px;
             box-sizing: border-box;
             direction: rtl;
         }
 
         .updater-button {
             width: 100%;
-            padding: 12px;
+            padding: 10px;
             border: none;
-            border-radius: 8px;
-            font-size: 16px;
+            border-radius: 6px;
+            font-size: 14px;
             font-weight: bold;
             cursor: pointer;
             transition: all 0.3s;
-            margin-bottom: 10px;
+            margin-bottom: 8px;
         }
 
         .updater-button.start {
@@ -141,8 +266,8 @@
 
         .updater-button.start:hover {
             background: #059669;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(16,185,129,0.4);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(16,185,129,0.4);
         }
 
         .updater-button.stop {
@@ -152,8 +277,8 @@
 
         .updater-button.stop:hover {
             background: #dc2626;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(239,68,68,0.4);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(239,68,68,0.4);
         }
 
         .updater-button.load {
@@ -163,8 +288,30 @@
 
         .updater-button.load:hover {
             background: #2563eb;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(59,130,246,0.4);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(59,130,246,0.4);
+        }
+
+        .updater-button.like {
+            background: #f59e0b;
+            color: white;
+        }
+
+        .updater-button.like:hover {
+            background: #d97706;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(245,158,11,0.4);
+        }
+
+        .updater-button.refresh-token {
+            background: #8b5cf6;
+            color: white;
+        }
+
+        .updater-button.refresh-token:hover {
+            background: #7c3aed;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(139,92,246,0.4);
         }
 
         .updater-button:disabled {
@@ -176,34 +323,34 @@
         .stats-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 10px;
-            margin-top: 15px;
+            gap: 8px;
+            margin-top: 12px;
         }
 
         .stat-box {
             background: rgba(255,255,255,0.15);
-            padding: 12px;
-            border-radius: 8px;
+            padding: 10px;
+            border-radius: 6px;
             text-align: center;
         }
 
         .stat-value {
-            font-size: 24px;
+            font-size: 20px;
             font-weight: bold;
             display: block;
-            margin-bottom: 5px;
+            margin-bottom: 4px;
         }
 
         .stat-label {
-            font-size: 12px;
+            font-size: 11px;
             opacity: 0.9;
         }
 
         .progress-bar {
             width: 100%;
-            height: 8px;
+            height: 6px;
             background: rgba(255,255,255,0.2);
-            border-radius: 4px;
+            border-radius: 3px;
             overflow: hidden;
             margin-top: 10px;
         }
@@ -212,26 +359,26 @@
             height: 100%;
             background: linear-gradient(90deg, #10b981, #3b82f6);
             transition: width 0.3s;
-            border-radius: 4px;
+            border-radius: 3px;
         }
 
         .log-container {
             background: rgba(0,0,0,0.3);
-            border-radius: 8px;
-            padding: 10px;
-            max-height: 150px;
+            border-radius: 6px;
+            padding: 8px;
+            max-height: 180px;
             overflow-y: auto;
-            font-size: 12px;
-            margin-top: 15px;
+            font-size: 11px;
+            margin-top: 12px;
         }
 
         .log-entry {
-            padding: 5px;
-            margin-bottom: 5px;
+            padding: 6px;
+            margin-bottom: 6px;
             border-radius: 4px;
             display: flex;
-            align-items: center;
-            gap: 8px;
+            flex-direction: column;
+            gap: 6px;
         }
 
         .log-entry.success {
@@ -247,7 +394,30 @@
         }
 
         .log-icon {
-            font-size: 14px;
+            font-size: 12px;
+        }
+
+        .log-ad-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 4px;
+            padding: 6px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 4px;
+        }
+
+        .log-ad-image {
+            width: 50px;
+            height: 50px;
+            object-fit: cover;
+            border-radius: 4px;
+        }
+
+        .log-ad-title {
+            flex: 1;
+            font-size: 11px;
+            font-weight: 600;
         }
 
         .minimized #haraj-updater-content {
@@ -260,19 +430,19 @@
 
         .speed-presets {
             display: flex;
-            gap: 5px;
-            margin-top: 10px;
+            gap: 4px;
+            margin-top: 8px;
         }
 
         .speed-preset {
             flex: 1;
-            padding: 8px;
+            padding: 6px;
             background: rgba(255,255,255,0.2);
             border: none;
-            border-radius: 6px;
+            border-radius: 4px;
             color: white;
             cursor: pointer;
-            font-size: 12px;
+            font-size: 11px;
             transition: all 0.3s;
         }
 
@@ -282,6 +452,231 @@
 
         .speed-preset.active {
             background: rgba(16,185,129,0.5);
+        }
+
+        /* Quick Reply Panel */
+        .quick-reply-panel {
+            position: fixed;
+            bottom: 80px;
+            right: 20px;
+            width: 320px;
+            max-width: 90vw;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+            z-index: 999998;
+            overflow: hidden;
+            direction: rtl;
+        }
+
+        .quick-reply-panel-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .quick-reply-panel-close {
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 18px;
+            line-height: 1;
+            transition: all 0.2s;
+        }
+
+        .quick-reply-panel-close:hover {
+            background: rgba(255,255,255,0.3);
+            transform: scale(1.1);
+        }
+
+        .quick-reply-panel-body {
+            max-height: 400px;
+            overflow-y: auto;
+            padding: 8px;
+        }
+
+        .quick-reply-item-panel {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px;
+            background: #f3f4f6;
+            border-radius: 8px;
+            margin-bottom: 6px;
+            transition: all 0.2s;
+        }
+
+        .quick-reply-item-panel:hover {
+            background: #e5e7eb;
+            transform: translateX(-2px);
+        }
+
+        .quick-reply-send-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            color: white;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            transition: all 0.2s;
+        }
+
+        .quick-reply-send-btn:hover {
+            transform: scale(1.1);
+            box-shadow: 0 4px 12px rgba(102,126,234,0.4);
+        }
+
+        .quick-reply-text-panel {
+            flex: 1;
+            font-size: 13px;
+            color: #333;
+            line-height: 1.4;
+        }
+
+        .quick-reply-number {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+
+        .quick-reply-empty {
+            text-align: center;
+            padding: 40px 20px;
+            color: #999;
+            font-size: 13px;
+        }
+
+        .quick-reply-empty small {
+            display: block;
+            margin-top: 8px;
+            font-size: 11px;
+            color: #bbb;
+        }
+
+        /* Quick Reply Modal */
+        .quick-reply-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999999;
+        }
+
+        .quick-reply-modal.active {
+            display: flex;
+        }
+
+        .quick-reply-modal-content {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            max-width: 500px;
+            width: 90%;
+            direction: rtl;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .quick-reply-modal h3 {
+            margin: 0 0 12px 0;
+            color: #333;
+            font-size: 18px;
+        }
+
+        .quick-reply-modal textarea {
+            width: 100%;
+            min-height: 80px;
+            padding: 10px;
+            border: 2px solid #e5e7eb;
+            border-radius: 6px;
+            font-size: 13px;
+            font-family: inherit;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+
+        .quick-reply-modal-buttons {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .quick-reply-modal-buttons button {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 13px;
+        }
+
+        .quick-reply-modal-buttons .confirm {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .quick-reply-modal-buttons .cancel {
+            background: #e5e7eb;
+            color: #333;
+        }
+
+        .quick-reply-list {
+            margin-top: 12px;
+        }
+
+        .quick-reply-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px;
+            background: #f3f4f6;
+            border-radius: 6px;
+            margin-bottom: 6px;
+        }
+
+        .quick-reply-item-text {
+            flex: 1;
+            font-size: 12px;
+        }
+
+        .quick-reply-item-remove {
+            background: #ef4444;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
         }
     `);
 
@@ -294,29 +689,23 @@
                 <h3>
                     <span>🔄</span>
                     <span>محدث حراج</span>
+                    <span class="token-status invalid" id="token-status" title="حالة التوكن"></span>
                 </h3>
                 <button id="haraj-updater-minimize">−</button>
             </div>
             <div id="haraj-updater-content">
                 <div class="updater-section">
-                    <label>⚡ السرعة (إعلانات/دفعة)</label>
-                    <input type="number" class="updater-input" id="ads-per-batch" value="${CONFIG.adsPerBatch}" min="1" max="20">
+                    <label>⚡ السرعة</label>
                     <div class="speed-presets">
-                        <button class="speed-preset" data-speed="3">بطيء (3)</button>
-                        <button class="speed-preset active" data-speed="6">متوسط (6)</button>
-                        <button class="speed-preset" data-speed="10">سريع (10)</button>
+                        <button class="speed-preset" data-speed="3">بطيء</button>
+                        <button class="speed-preset active" data-speed="6">متوسط</button>
+                        <button class="speed-preset" data-speed="10">سريع</button>
                     </div>
                 </div>
 
-                <div class="updater-section">
-                    <label>⏱️ الفاصل الزمني (ثانية)</label>
-                    <input type="number" class="updater-input" id="update-interval" value="${CONFIG.updateInterval / 1000}" min="0.5" max="10" step="0.5">
-                </div>
-
-                <div class="updater-section">
-                    <label>🔑 التوكن (اختياري - للإدخال اليدوي)</label>
-                    <input type="text" class="updater-input" id="manual-token" placeholder="الصق التوكن هنا إذا لزم الأمر">
-                </div>
+                <button class="updater-button refresh-token" id="refresh-token-btn">
+                    🔄 تحديث التوكن
+                </button>
 
                 <button class="updater-button load" id="load-posts-btn">
                     📋 تحميل الإعلانات
@@ -326,8 +715,16 @@
                     ▶️ بدء التحديث
                 </button>
 
+                <button class="updater-button like" id="like-all-btn" disabled>
+                    ❤️ تفضيل الكل
+                </button>
+
                 <button class="updater-button stop" id="stop-btn" disabled>
                     ⏸️ إيقاف
+                </button>
+
+                <button class="updater-button load" id="quick-reply-btn">
+                    💬 الردود السريعة
                 </button>
 
                 <div class="stats-grid">
@@ -360,6 +757,7 @@
         document.body.appendChild(menu);
         makeDraggable(menu);
         attachEventListeners();
+        createQuickReplyUI();
     }
 
     // Make menu draggable
@@ -410,32 +808,14 @@
                 document.querySelectorAll('.speed-preset').forEach(b => b.classList.remove('active'));
                 e.target.classList.add('active');
                 const speed = parseInt(e.target.dataset.speed);
-                document.getElementById('ads-per-batch').value = speed;
                 CONFIG.adsPerBatch = speed;
                 GM_setValue('adsPerBatch', speed);
+                addLog('info', `تم تغيير السرعة إلى ${speed} إعلانات/دفعة`);
             });
         });
 
-        // Ads per batch input
-        document.getElementById('ads-per-batch').addEventListener('change', (e) => {
-            CONFIG.adsPerBatch = parseInt(e.target.value);
-            GM_setValue('adsPerBatch', CONFIG.adsPerBatch);
-        });
-
-        // Update interval input
-        document.getElementById('update-interval').addEventListener('change', (e) => {
-            CONFIG.updateInterval = parseFloat(e.target.value) * 1000;
-            GM_setValue('updateInterval', CONFIG.updateInterval);
-        });
-
-        // Manual token input
-        document.getElementById('manual-token').addEventListener('input', (e) => {
-            const token = e.target.value.trim();
-            if (token.length > 10) {
-                CONFIG.token = token;
-                addLog('success', 'تم حفظ التوكن يدوياً');
-            }
-        });
+        // Refresh token button
+        document.getElementById('refresh-token-btn').addEventListener('click', refreshToken);
 
         // Load posts button
         document.getElementById('load-posts-btn').addEventListener('click', loadPosts);
@@ -443,8 +823,14 @@
         // Start button
         document.getElementById('start-btn').addEventListener('click', startUpdating);
 
+        // Like all button
+        document.getElementById('like-all-btn').addEventListener('click', likeAllAds);
+
         // Stop button
         document.getElementById('stop-btn').addEventListener('click', stopUpdating);
+
+        // Quick reply button
+        document.getElementById('quick-reply-btn').addEventListener('click', openQuickReplyModal);
     }
 
     // Extract token from page
@@ -503,7 +889,7 @@
                 }
             }
 
-            // Method 2: Try to get token from localStorage with various key names
+            // Method 3: Try to get token from localStorage with various key names
             const possibleKeys = ['token', 'authToken', 'auth_token', 'userToken', 'user_token', 'accessToken', 'access_token'];
             
             for (let key of possibleKeys) {
@@ -527,7 +913,7 @@
                 }
             }
 
-            // Method 3: Check all localStorage items for JWT-like tokens
+            // Method 4: Check all localStorage items for JWT-like tokens
             for (let i = 0; i < localStorage.length; i++) {
                 const key = localStorage.key(i);
                 const value = localStorage.getItem(key);
@@ -554,7 +940,7 @@
                 }
             }
 
-            // Method 4: Try to extract from sessionStorage
+            // Method 5: Try to extract from sessionStorage
             for (let i = 0; i < sessionStorage.length; i++) {
                 const key = sessionStorage.key(i);
                 const value = sessionStorage.getItem(key);
@@ -581,7 +967,7 @@
                 }
             }
 
-            addLog('error', 'لم يتم العثور على التوكن. افتح DevTools (F12) > Application > Cookies وانسخ التوكن');
+            addLog('error', 'لم يتم العثور على التوكن. الرجاء تسجيل الدخول أو إدخال التوكن يدوياً');
             console.log('=== للمساعدة في إيجاد التوكن ===');
             console.log('Cookies:', document.cookie);
             console.log('localStorage keys:', Object.keys(localStorage));
@@ -591,6 +977,97 @@
             console.error('Error extracting token:', e);
             addLog('error', `خطأ في استخراج التوكن: ${e.message}`);
             return false;
+        }
+    }
+
+    // Update token status indicator
+    function updateTokenStatus(isValid) {
+        const statusEl = document.getElementById('token-status');
+        if (statusEl) {
+            if (isValid) {
+                statusEl.classList.remove('invalid');
+                statusEl.classList.add('valid');
+                statusEl.title = 'التوكن صالح ✓';
+            } else {
+                statusEl.classList.remove('valid');
+                statusEl.classList.add('invalid');
+                statusEl.title = 'التوكن غير صالح ✗';
+            }
+        }
+    }
+
+    // Validate token by making a test API call
+    async function validateToken() {
+        if (!CONFIG.token) {
+            updateTokenStatus(false);
+            return false;
+        }
+
+        try {
+            addLog('info', 'جاري التحقق من صلاحية التوكن...');
+            
+            // Make a simple test request - just try to update a non-existent post
+            // This will tell us if the token is valid without actually updating anything
+            const response = await fetch(CONFIG.graphqlEndpoint + '?queryName=validateToken&clientId=ymZn1c5V-kFw1-HIfT-5zEd-mEHP5dmkhQ6Rv3&version=N0.0.1', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    query: `mutation {
+                        updatePost(token: "${CONFIG.token}", id: 999999999) {
+                            status
+                            notValidReason
+                        }
+                    }`
+                })
+            });
+
+            if (!response.ok) {
+                addLog('error', '❌ فشل الاتصال بالخادم');
+                updateTokenStatus(false);
+                return false;
+            }
+
+            const text = await response.text();
+            if (!text) {
+                addLog('error', '❌ استجابة فارغة من الخادم');
+                updateTokenStatus(false);
+                return false;
+            }
+
+            const data = JSON.parse(text);
+            
+            // Check if we got "not logged in" error
+            if (data.errors && data.errors.some(e => e.message && e.message.includes('لم يتم تسجيل الدخول'))) {
+                addLog('error', '❌ التوكن غير صالح - لم يتم تسجيل الدخول');
+                updateTokenStatus(false);
+                return false;
+            }
+            
+            // If we got any response without "not logged in" error, token is valid
+            addLog('success', '✅ التوكن صالح ويعمل بشكل صحيح');
+            updateTokenStatus(true);
+            return true;
+        } catch (error) {
+            console.error('Token validation error:', error);
+            addLog('error', 'فشل التحقق من التوكن');
+            updateTokenStatus(false);
+            return false;
+        }
+    }
+
+    // Refresh token
+    async function refreshToken() {
+        addLog('info', 'جاري تحديث التوكن...');
+        CONFIG.token = null;
+        updateTokenStatus(false);
+        
+        if (extractToken()) {
+            // Validate the new token
+            await validateToken();
+        } else {
+            addLog('error', 'فشل في استخراج التوكن. الرجاء تسجيل الدخول مرة أخرى');
         }
     }
 
@@ -692,12 +1169,34 @@
     // Collect post IDs from page
     function collectPostIds() {
         postIds = [];
+        postsData = [];
         const postElements = document.querySelectorAll('[data-test-postid]');
         
         postElements.forEach(el => {
             const postId = el.getAttribute('data-test-postid');
             if (postId) {
                 postIds.push(parseInt(postId));
+                
+                // Try to extract post data (image and title)
+                const postData = {
+                    id: parseInt(postId),
+                    title: '',
+                    image: ''
+                };
+                
+                // Try to find title
+                const titleEl = el.querySelector('[data-testid="post-title"], h3, h2, .post-title');
+                if (titleEl) {
+                    postData.title = titleEl.textContent.trim();
+                }
+                
+                // Try to find image
+                const imageEl = el.querySelector('img[src*="haraj"], img[data-src*="haraj"], img');
+                if (imageEl) {
+                    postData.image = imageEl.src || imageEl.dataset.src || '';
+                }
+                
+                postsData.push(postData);
             }
         });
 
@@ -705,6 +1204,7 @@
         stats.updated = 0;
         stats.failed = 0;
         stats.skipped = 0;
+        stats.liked = 0;
         currentIndex = 0;
 
         updateStats();
@@ -712,6 +1212,7 @@
         if (postIds.length > 0) {
             addLog('success', `تم تحميل ${postIds.length} إعلان`);
             document.getElementById('start-btn').disabled = false;
+            document.getElementById('like-all-btn').disabled = false;
         } else {
             addLog('error', 'لم يتم العثور على إعلانات');
         }
@@ -719,30 +1220,26 @@
 
     // Start updating
     async function startUpdating() {
-        // Check if manual token was entered
-        const manualToken = document.getElementById('manual-token').value.trim();
-        if (manualToken.length > 10) {
-            CONFIG.token = manualToken;
-            addLog('success', 'استخدام التوكن اليدوي');
-        } else {
-            // Always try to extract token
-            if (!extractToken()) {
-                addLog('error', 'فشل في استخراج التوكن. الرجاء إدخال التوكن يدوياً أو التحقق من تسجيل الدخول');
-                
-                // Log available storage for debugging
-                console.log('=== DEBUG: Available Storage ===');
-                console.log('localStorage keys:', Object.keys(localStorage));
-                console.log('sessionStorage keys:', Object.keys(sessionStorage));
-                console.log('cookies:', document.cookie);
-                
-                return;
-            }
+        // Always try to extract token
+        if (!CONFIG.token || !extractToken()) {
+            addLog('error', 'فشل في استخراج التوكن. الرجاء الضغط على "تحديث التوكن"');
+            return;
+        }
+
+        // Validate token before starting
+        addLog('info', 'جاري التحقق من صلاحية التوكن...');
+        const isValid = await validateToken();
+        
+        if (!isValid) {
+            addLog('error', '❌ التوكن غير صالح. الرجاء تسجيل الدخول مرة أخرى أو الضغط على "تحديث التوكن"');
+            return;
         }
 
         isRunning = true;
         document.getElementById('start-btn').disabled = true;
         document.getElementById('stop-btn').disabled = false;
         document.getElementById('load-posts-btn').disabled = true;
+        document.getElementById('like-all-btn').disabled = true;
 
         addLog('info', 'بدء التحديث...');
         
@@ -752,9 +1249,11 @@
     // Stop updating
     function stopUpdating() {
         isRunning = false;
+        isLiking = false;
         document.getElementById('start-btn').disabled = false;
         document.getElementById('stop-btn').disabled = true;
         document.getElementById('load-posts-btn').disabled = false;
+        document.getElementById('like-all-btn').disabled = false;
         addLog('info', 'تم إيقاف التحديث');
     }
 
@@ -848,20 +1347,31 @@
             const data = await response.json();
             console.log(`Post ${postId} response:`, data);
             
+            // Find post data
+            const postData = postsData.find(p => p.id === postId) || { id: postId, title: `إعلان #${postId}`, image: '' };
+            
             // Check if update was successful
             if (data.data?.updatePost?.status === true || data.data?.updatePost?.status === 'success') {
                 stats.updated++;
-                addLog('success', `✓ تم تحديث الإعلان #${postId}`);
+                addLog('success', `✓ تم تحديث الإعلان`, postData);
+            } else if (data.errors && data.errors.some(e => e.message && e.message.includes('لم يتم تسجيل الدخول'))) {
+                // Token is invalid - stop everything
+                stats.failed++;
+                addLog('error', `✗ التوكن غير صالح - لم يتم تسجيل الدخول`, postData);
+                updateTokenStatus(false);
+                stopUpdating();
+                addLog('error', '❌ تم إيقاف التحديث: التوكن غير صالح. الرجاء الضغط على "تحديث التوكن"');
             } else {
                 // Update failed - show the reason
                 stats.failed++;
-                const reason = data.data?.updatePost?.notValidReason || 'فشل التحديث';
-                addLog('error', `✗ الإعلان #${postId}: ${reason}`);
+                const reason = data.data?.updatePost?.notValidReason || data.errors?.[0]?.message || 'فشل التحديث';
+                addLog('error', `✗ ${reason}`, postData);
                 console.error(`Failed to update post ${postId}:`, reason);
             }
         } catch (error) {
             stats.failed++;
-            addLog('error', `✗ خطأ في الإعلان #${postId}: ${error.message}`);
+            const postData = postsData.find(p => p.id === postId) || { id: postId, title: `إعلان #${postId}`, image: '' };
+            addLog('error', `✗ خطأ في الإعلان: ${error.message}`, postData);
             console.error(`Error updating post ${postId}:`, error);
         }
     }
@@ -878,13 +1388,31 @@
     }
 
     // Add log entry
-    function addLog(type, message) {
+    function addLog(type, message, postData = null) {
         const logContainer = document.getElementById('log-container');
         const entry = document.createElement('div');
         entry.className = `log-entry ${type}`;
         
         const icon = type === 'success' ? '✓' : type === 'error' ? '✗' : 'ℹ';
-        entry.innerHTML = `<span class="log-icon">${icon}</span><span>${message}</span>`;
+        
+        let html = `<div style="display: flex; align-items: center; gap: 8px;">
+            <span class="log-icon">${icon}</span>
+            <span>${message}</span>
+        </div>`;
+        
+        // Add post info if available
+        if (postData && (postData.title || postData.image)) {
+            html += `<div class="log-ad-info">`;
+            
+            if (postData.image) {
+                html += `<img src="${postData.image}" class="log-ad-image" alt="صورة الإعلان" onerror="this.style.display='none'">`;
+            }
+            
+            html += `<div class="log-ad-title">${postData.title || `إعلان #${postData.id}`}</div>`;
+            html += `</div>`;
+        }
+        
+        entry.innerHTML = html;
         
         logContainer.insertBefore(entry, logContainer.firstChild);
         
@@ -894,18 +1422,358 @@
         }
     }
 
+    // Like all ads
+    async function likeAllAds() {
+        if (!CONFIG.token) {
+            if (!extractToken()) {
+                addLog('error', 'فشل في استخراج التوكن. الرجاء إدخال التوكن يدوياً');
+                return;
+            }
+        }
+
+        // Validate token
+        const isValid = await validateToken();
+        if (!isValid) {
+            addLog('error', '❌ التوكن غير صالح. الرجاء تسجيل الدخول مرة أخرى');
+            return;
+        }
+
+        isLiking = true;
+        document.getElementById('like-all-btn').disabled = true;
+        document.getElementById('start-btn').disabled = true;
+        document.getElementById('stop-btn').disabled = false;
+
+        addLog('info', 'بدء تفضيل جميع الإعلانات...');
+
+        for (let i = 0; i < postIds.length; i++) {
+            if (!isLiking) break;
+
+            const postId = postIds[i];
+            await likePost(postId);
+            
+            // Update progress
+            const progress = ((i + 1) / postIds.length) * 100;
+            document.getElementById('progress-fill').style.width = progress + '%';
+            
+            // Wait between requests
+            await sleep(CONFIG.updateInterval);
+        }
+
+        addLog('success', `✅ تم تفضيل ${stats.liked} إعلان`);
+        stopUpdating();
+    }
+
+    // Like single post
+    async function likePost(postId) {
+        try {
+            const response = await fetch(CONFIG.graphqlEndpoint + '?queryName=submitLike&clientId=ymZn1c5V-kFw1-HIfT-5zEd-mEHP5dmkhQ6Rv3&version=N0.0.1', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    query: `mutation {
+                        submitLike(token: "${CONFIG.token}", id: ${postId})
+                    }`
+                })
+            });
+
+            const data = await response.json();
+            console.log(`Like post ${postId} response:`, data);
+            
+            const postData = postsData.find(p => p.id === postId) || { id: postId, title: `إعلان #${postId}`, image: '' };
+            
+            if (data.data?.submitLike) {
+                stats.liked++;
+                addLog('success', `❤️ تم تفضيل الإعلان`, postData);
+            } else {
+                addLog('error', `فشل تفضيل الإعلان`, postData);
+            }
+        } catch (error) {
+            const postData = postsData.find(p => p.id === postId) || { id: postId, title: `إعلان #${postId}`, image: '' };
+            addLog('error', `خطأ في تفضيل الإعلان: ${error.message}`, postData);
+            console.error(`Error liking post ${postId}:`, error);
+        }
+    }
+
+    // Create Quick Reply UI
+    function createQuickReplyUI() {
+        // Create modal only
+        const modal = document.createElement('div');
+        modal.className = 'quick-reply-modal';
+        modal.id = 'quick-reply-modal';
+        modal.innerHTML = `
+            <div class="quick-reply-modal-content">
+                <h3>إدارة الردود السريعة</h3>
+                <textarea id="quick-reply-input" placeholder="اكتب رسالتك هنا..."></textarea>
+                <div class="quick-reply-modal-buttons">
+                    <button class="confirm" id="add-quick-reply">إضافة</button>
+                    <button class="cancel" id="cancel-quick-reply">إلغاء</button>
+                </div>
+                <div class="quick-reply-list" id="quick-reply-list"></div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        // Event listeners
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.classList.remove('active');
+            }
+        });
+
+        document.getElementById('add-quick-reply').addEventListener('click', addQuickReply);
+        document.getElementById('cancel-quick-reply').addEventListener('click', () => {
+            modal.classList.remove('active');
+        });
+
+        // Load saved quick replies
+        loadQuickReplies();
+    }
+
+    // Check if we're on a chat page
+    function checkChatPage() {
+        try {
+            // Only run on chat pages
+            if (!window.location.href.includes('/chat') && !window.location.href.includes('/messages')) {
+                return;
+            }
+
+            // Check if already injected
+            if (document.querySelector('.quick-reply-panel')) {
+                return;
+            }
+
+            // Look for the chat textarea
+            const chatTextarea = document.querySelector('textarea[id*="chat"]') || 
+                                document.querySelector('textarea[placeholder*="رسالة"]') ||
+                                document.querySelector('#chat-textbox');
+            
+            if (!chatTextarea) {
+                return;
+            }
+
+            // Create floating panel
+            const panel = document.createElement('div');
+            panel.className = 'quick-reply-panel';
+            
+            const header = document.createElement('div');
+            header.className = 'quick-reply-panel-header';
+            header.innerHTML = '<span>💬 ردود سريعة</span>';
+            
+            const closeBtn = document.createElement('button');
+            closeBtn.className = 'quick-reply-panel-close';
+            closeBtn.textContent = '×';
+            closeBtn.addEventListener('click', () => panel.remove());
+            header.appendChild(closeBtn);
+            
+            const body = document.createElement('div');
+            body.className = 'quick-reply-panel-body';
+            body.id = 'quick-reply-panel-body';
+            
+            if (CONFIG.quickReplies.length === 0) {
+                body.innerHTML = '<div class="quick-reply-empty">لا توجد ردود سريعة<br><small>اضغط على زر "الردود السريعة" في القائمة لإضافة ردود</small></div>';
+            } else {
+                CONFIG.quickReplies.forEach((reply, index) => {
+                    const item = document.createElement('div');
+                    item.className = 'quick-reply-item-panel';
+                    
+                    const sendBtn = document.createElement('button');
+                    sendBtn.className = 'quick-reply-send-btn';
+                    sendBtn.textContent = '📤';
+                    sendBtn.addEventListener('click', () => {
+                        window.harajUpdater.sendQuickReply(reply);
+                    });
+                    
+                    const textDiv = document.createElement('div');
+                    textDiv.className = 'quick-reply-text-panel';
+                    textDiv.textContent = reply;
+                    
+                    const numberSpan = document.createElement('span');
+                    numberSpan.className = 'quick-reply-number';
+                    numberSpan.textContent = index + 1;
+                    
+                    item.appendChild(sendBtn);
+                    item.appendChild(textDiv);
+                    item.appendChild(numberSpan);
+                    body.appendChild(item);
+                });
+            }
+            
+            panel.appendChild(header);
+            panel.appendChild(body);
+            document.body.appendChild(panel);
+            
+            console.log('✅ Quick reply panel injected successfully');
+        } catch (error) {
+            console.error('Error in checkChatPage:', error);
+        }
+    }
+
+    // Render quick reply buttons in panel
+    function renderQuickReplyPanel() {
+        const body = document.getElementById('quick-reply-panel-body');
+        if (!body) return;
+
+        // Clear existing content
+        body.innerHTML = '';
+
+        if (CONFIG.quickReplies.length === 0) {
+            body.innerHTML = '<div class="quick-reply-empty">لا توجد ردود سريعة<br><small>اضغط على زر "الردود السريعة" في القائمة لإضافة ردود</small></div>';
+            return;
+        }
+
+        CONFIG.quickReplies.forEach((reply, index) => {
+            const item = document.createElement('div');
+            item.className = 'quick-reply-item-panel';
+            
+            const sendBtn = document.createElement('button');
+            sendBtn.className = 'quick-reply-send-btn';
+            sendBtn.textContent = '📤';
+            sendBtn.addEventListener('click', () => {
+                window.harajUpdater.sendQuickReply(reply);
+            });
+            
+            const textDiv = document.createElement('div');
+            textDiv.className = 'quick-reply-text-panel';
+            textDiv.textContent = reply;
+            
+            const numberSpan = document.createElement('span');
+            numberSpan.className = 'quick-reply-number';
+            numberSpan.textContent = index + 1;
+            
+            item.appendChild(sendBtn);
+            item.appendChild(textDiv);
+            item.appendChild(numberSpan);
+            body.appendChild(item);
+        });
+    }
+
+    // Open quick reply modal
+    function openQuickReplyModal() {
+        const modal = document.getElementById('quick-reply-modal');
+        modal.classList.add('active');
+        renderQuickReplyList();
+    }
+
+    // Add quick reply
+    function addQuickReply() {
+        const input = document.getElementById('quick-reply-input');
+        const text = input.value.trim();
+        
+        if (!text) {
+            alert('الرجاء إدخال نص الرسالة');
+            return;
+        }
+
+        CONFIG.quickReplies.push(text);
+        GM_setValue('quickReplies', CONFIG.quickReplies);
+        
+        input.value = '';
+        renderQuickReplyList();
+        renderQuickReplyPanel();
+        
+        addLog('success', 'تم إضافة رد سريع جديد');
+    }
+
+    // Remove quick reply
+    function removeQuickReply(index) {
+        CONFIG.quickReplies.splice(index, 1);
+        GM_setValue('quickReplies', CONFIG.quickReplies);
+        renderQuickReplyList();
+        renderQuickReplyPanel();
+        addLog('info', 'تم حذف الرد السريع');
+    }
+
+    // Render quick reply list in modal
+    function renderQuickReplyList() {
+        const list = document.getElementById('quick-reply-list');
+        if (!list) return;
+
+        if (CONFIG.quickReplies.length === 0) {
+            list.innerHTML = '<p style="text-align: center; color: #999; padding: 20px;">لا توجد ردود سريعة</p>';
+            return;
+        }
+
+        list.innerHTML = CONFIG.quickReplies.map((reply, index) => `
+            <div class="quick-reply-item">
+                <div class="quick-reply-item-text">${reply}</div>
+                <button class="quick-reply-item-remove" onclick="window.harajUpdater.removeQuickReply(${index})">حذف</button>
+            </div>
+        `).join('');
+    }
+
+    // Insert quick reply into chat
+    function insertQuickReply(index) {
+        const reply = CONFIG.quickReplies[index];
+        if (!reply) return;
+
+        // Try to find chat textarea
+        const textarea = document.querySelector('textarea[id*="chat"], textarea[placeholder*="رسالة"], #chat-textbox');
+        
+        if (textarea) {
+            textarea.value = reply;
+            textarea.focus();
+            
+            // Trigger input event to update any React/Vue state
+            const event = new Event('input', { bubbles: true });
+            textarea.dispatchEvent(event);
+            
+            addLog('success', 'تم إدراج الرد السريع');
+        } else {
+            // Copy to clipboard as fallback
+            navigator.clipboard.writeText(reply).then(() => {
+                addLog('success', 'تم نسخ الرد السريع إلى الحافظة');
+            });
+        }
+    }
+
+    // Load quick replies
+    function loadQuickReplies() {
+        CONFIG.quickReplies = GM_getValue('quickReplies', []);
+    }
+
     // Initialize
     function init() {
         // Wait for page to load
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', () => {
                 createMenu();
+                setupChatObserver();
             });
         } else {
             createMenu();
+            setupChatObserver();
         }
 
         addLog('info', 'تم تحميل محدث حراج بنجاح');
+        
+        // Try to extract token on load
+        setTimeout(() => {
+            if (extractToken()) {
+                validateToken();
+            }
+        }, 1000);
+    }
+
+    // Setup observer for chat pages
+    function setupChatObserver() {
+        // Check immediately if on chat page
+        if (window.location.href.includes('/chat') || window.location.href.includes('/messages')) {
+            setTimeout(checkChatPage, 1000);
+        }
+        
+        // Watch for URL changes using a simple interval (safer than MutationObserver)
+        let lastUrl = location.href;
+        setInterval(() => {
+            const url = location.href;
+            if (url !== lastUrl) {
+                lastUrl = url;
+                if (url.includes('/chat') || url.includes('/messages')) {
+                    setTimeout(checkChatPage, 500);
+                }
+            }
+        }, 2000); // Check every 2 seconds (not too aggressive)
     }
 
     // Start the script
