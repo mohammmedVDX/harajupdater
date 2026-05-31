@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Haraj Auto Updater - محدث حراج التلقائي
 // @namespace    http://tampermonkey.net/
-// @version      4.3.1
+// @version      4.4.0
 // @description  Auto update Haraj ads - تحديث إعلانات حراج تلقائياً
 // @author       You
 // @match        https://haraj.com.sa/*
@@ -376,7 +376,10 @@
         const cookies = {};
         document.cookie.split(';').forEach(cookie => {
             const [name, ...rest] = cookie.trim().split('=');
-            if (name && rest.length > 0) cookies[name] = rest.join('=');
+            if (name && rest.length > 0) {
+                // Decode URL-encoded cookies
+                cookies[name] = decodeURIComponent(rest.join('='));
+            }
         });
         
         console.log('Available cookies:', Object.keys(cookies));
@@ -385,7 +388,8 @@
         if (cookies['accessToken'] && cookies['accessToken'].length > 20) {
             CONFIG.token = cookies['accessToken'];
             addLog('success', `✓ استخدام accessToken`);
-            console.log('Using accessToken:', CONFIG.token.substring(0, 30) + '...');
+            console.log('Using accessToken (decoded):', CONFIG.token.substring(0, 50) + '...');
+            console.log('Full token:', CONFIG.token);
             return true;
         }
         
@@ -393,7 +397,8 @@
         if (cookies['refreshToken'] && cookies['refreshToken'].length > 20) {
             CONFIG.token = cookies['refreshToken'];
             addLog('success', `✓ استخدام refreshToken`);
-            console.log('Using refreshToken:', CONFIG.token.substring(0, 30) + '...');
+            console.log('Using refreshToken (decoded):', CONFIG.token.substring(0, 50) + '...');
+            console.log('Full token:', CONFIG.token);
             return true;
         }
         
@@ -402,7 +407,8 @@
             if (value.startsWith('eyJ') && value.length > 50) {
                 CONFIG.token = value;
                 addLog('success', `✓ استخدام ${key}`);
-                console.log(`Using ${key}:`, value.substring(0, 30) + '...');
+                console.log(`Using ${key}:`, value.substring(0, 50) + '...');
+                console.log('Full token:', value);
                 return true;
             }
         }
@@ -708,4 +714,26 @@
     } else {
         createMenu();
     }
+    
+    // Intercept fetch to see how the website makes real API calls
+    const originalFetch = window.fetch;
+    window.fetch = function(...args) {
+        const url = args[0];
+        if (typeof url === 'string' && url.includes('updatePost')) {
+            console.log('🔍 INTERCEPTED updatePost request:', args);
+            console.log('URL:', url);
+            console.log('Options:', args[1]);
+            if (args[1]?.body) {
+                try {
+                    console.log('Body:', JSON.parse(args[1].body));
+                } catch(e) {
+                    console.log('Body (raw):', args[1].body);
+                }
+            }
+        }
+        return originalFetch.apply(this, args);
+    };
+    
+    console.log('✅ Haraj Updater loaded - Network interceptor active');
+    console.log('💡 Try manually updating a post on the website to see the real API call');
 })();
