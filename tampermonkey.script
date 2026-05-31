@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Haraj Auto Updater - محدث حراج التلقائي
 // @namespace    http://tampermonkey.net/
-// @version      4.4.0
+// @version      4.4.1
 // @description  Auto update Haraj ads - تحديث إعلانات حراج تلقائياً
 // @author       You
 // @match        https://haraj.com.sa/*
@@ -14,7 +14,7 @@
 // @updateURL    https://raw.githubusercontent.com/mohammmedVDX/harajupdater/refs/heads/main/tampermonkey.script
 // @downloadURL  https://raw.githubusercontent.com/mohammmedVDX/harajupdater/refs/heads/main/tampermonkey.script
 // @connect      raw.githubusercontent.com
-// @run-at       document-end
+// @run-at       document-start
 // ==/UserScript==
 
 (function() {
@@ -715,17 +715,21 @@
         createMenu();
     }
     
-    // Intercept fetch to see how the website makes real API calls
+    // Intercept both fetch and XMLHttpRequest
     const originalFetch = window.fetch;
     window.fetch = function(...args) {
         const url = args[0];
-        if (typeof url === 'string' && url.includes('updatePost')) {
-            console.log('🔍 INTERCEPTED updatePost request:', args);
-            console.log('URL:', url);
+        if (typeof url === 'string' && (url.includes('graphql') || url.includes('updatePost'))) {
+            console.log('🔍 FETCH INTERCEPTED:', url);
             console.log('Options:', args[1]);
             if (args[1]?.body) {
                 try {
-                    console.log('Body:', JSON.parse(args[1].body));
+                    const body = JSON.parse(args[1].body);
+                    console.log('Body:', body);
+                    if (body.query && body.query.includes('updatePost')) {
+                        console.log('⭐ THIS IS THE UPDATE POST REQUEST!');
+                        console.log('Variables:', body.variables);
+                    }
                 } catch(e) {
                     console.log('Body (raw):', args[1].body);
                 }
@@ -734,6 +738,42 @@
         return originalFetch.apply(this, args);
     };
     
-    console.log('✅ Haraj Updater loaded - Network interceptor active');
-    console.log('💡 Try manually updating a post on the website to see the real API call');
+    const originalXHR = window.XMLHttpRequest;
+    window.XMLHttpRequest = function() {
+        const xhr = new originalXHR();
+        const originalOpen = xhr.open;
+        const originalSend = xhr.send;
+        
+        let requestURL = '';
+        let requestBody = '';
+        
+        xhr.open = function(method, url, ...rest) {
+            requestURL = url;
+            if (url.includes('graphql') || url.includes('updatePost')) {
+                console.log('🔍 XHR INTERCEPTED:', method, url);
+            }
+            return originalOpen.apply(this, [method, url, ...rest]);
+        };
+        
+        xhr.send = function(body) {
+            if (requestURL.includes('graphql') || requestURL.includes('updatePost')) {
+                console.log('XHR Body:', body);
+                try {
+                    const parsed = JSON.parse(body);
+                    if (parsed.query && parsed.query.includes('updatePost')) {
+                        console.log('⭐ THIS IS THE UPDATE POST REQUEST!');
+                        console.log('Variables:', parsed.variables);
+                    }
+                } catch(e) {}
+            }
+            return originalSend.apply(this, arguments);
+        };
+        
+        return xhr;
+    };
+    
+    console.log('✅ Haraj Updater v4.4.0 loaded');
+    console.log('🔍 Network interceptors active (fetch + XHR)');
+    console.log('💡 Go to your posts page and click تحديث on any post');
+    console.log('💡 OR open Network tab (F12) and filter by "updatePost" to see the real request');
 })();
