@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Haraj Auto Updater - محدث حراج التلقائي
 // @namespace    http://tampermonkey.net/
-// @version      4.5.0
+// @version      5.2.0
 // @description  Auto update Haraj ads - تحديث إعلانات حراج تلقائياً
 // @author       You
 // @match        https://haraj.com.sa/*
@@ -14,16 +14,19 @@
 // @updateURL    https://raw.githubusercontent.com/mohammmedVDX/harajupdater/refs/heads/main/tampermonkey.script
 // @downloadURL  https://raw.githubusercontent.com/mohammmedVDX/harajupdater/refs/heads/main/tampermonkey.script
 // @connect      raw.githubusercontent.com
-// @run-at       document-start
+// @run-at       document-end
 // ==/UserScript==
 
 (function() {
     'use strict';
 
+    const VERSION = '5.2.0';
+    
     const CONFIG = {
         updateInterval: GM_getValue('updateInterval', 1000),
         adsPerBatch: GM_getValue('adsPerBatch', 6),
         token: null,
+        clientId: null,
         graphqlEndpoint: 'https://graphql.haraj.com.sa/'
     };
 
@@ -35,234 +38,120 @@
 
     GM_addStyle(`
         #haraj-menu {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            width: 320px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 8px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.4);
-            z-index: 999999;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            color: white;
-            direction: rtl;
-            border: 2px solid rgba(255,255,255,0.1);
+            position: fixed; top: 20px; right: 20px; width: 340px;
+            background: linear-gradient(145deg, #667eea 0%, #764ba2 100%);
+            border-radius: 12px; box-shadow: 0 15px 50px rgba(0,0,0,0.5); z-index: 999999;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: white;
+            direction: rtl; border: 3px solid rgba(255,255,255,0.15);
         }
         #haraj-header {
-            background: rgba(0,0,0,0.25);
-            padding: 14px 16px;
-            cursor: move;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-radius: 6px 6px 0 0;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
+            background: rgba(0,0,0,0.3); padding: 16px; cursor: move;
+            display: flex; justify-content: space-between; align-items: center;
+            border-radius: 10px 10px 0 0; border-bottom: 2px solid rgba(255,255,255,0.1);
         }
         #haraj-header h3 {
-            margin: 0;
-            font-size: 17px;
-            font-weight: 600;
-            letter-spacing: 0.3px;
+            margin: 0; font-size: 18px; font-weight: 700; letter-spacing: 0.5px;
+            display: flex; align-items: center; gap: 10px;
+        }
+        .version-badge {
+            font-size: 10px; background: rgba(16,185,129,0.3); padding: 3px 8px;
+            border-radius: 12px; font-weight: 600; border: 1px solid rgba(16,185,129,0.5);
         }
         #haraj-minimize {
-            background: rgba(255,255,255,0.15);
-            border: none;
-            color: white;
-            width: 26px;
-            height: 26px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 18px;
-            font-weight: bold;
-            transition: all 0.2s;
+            background: rgba(255,255,255,0.2); border: none; color: white;
+            width: 30px; height: 30px; border-radius: 6px; cursor: pointer;
+            font-size: 20px; font-weight: bold; transition: all 0.3s;
         }
-        #haraj-minimize:hover {
-            background: rgba(255,255,255,0.25);
-        }
-        #haraj-content {
-            padding: 16px;
-        }
-        .btn-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-            margin-bottom: 12px;
-        }
-        .haraj-btn {
-            padding: 12px;
-            border: none;
-            border-radius: 6px;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-        }
-        .haraj-btn:disabled {
-            opacity: 0.4;
-            cursor: not-allowed;
-            box-shadow: none;
-        }
-        .haraj-btn:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-        }
-        .btn-load { background: #3b82f6; color: white; }
-        .btn-start { background: #10b981; color: white; }
-        .btn-like { background: #f59e0b; color: white; }
-        .btn-stop { background: #ef4444; color: white; }
-        .stats {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-            margin: 12px 0;
-        }
-        .stat {
-            background: rgba(255,255,255,0.12);
-            padding: 10px;
-            border-radius: 6px;
-            text-align: center;
-            font-size: 12px;
-            border: 1px solid rgba(255,255,255,0.08);
-        }
-        .stat-value {
-            font-size: 22px;
-            font-weight: 700;
-            display: block;
-            margin-bottom: 2px;
-        }
-        .stat-label {
-            font-size: 11px;
-            opacity: 0.85;
-        }
-        .progress {
-            width: 100%;
-            height: 8px;
-            background: rgba(0,0,0,0.3);
-            border-radius: 4px;
-            overflow: hidden;
-            margin: 12px 0;
-            border: 1px solid rgba(255,255,255,0.1);
-        }
-        .progress-bar {
-            height: 100%;
-            background: linear-gradient(90deg, #10b981, #34d399);
-            transition: width 0.3s;
-            box-shadow: 0 0 10px rgba(16,185,129,0.5);
-        }
-        .log {
-            background: rgba(0,0,0,0.35);
-            border-radius: 6px;
-            padding: 10px;
-            max-height: 180px;
-            overflow-y: auto;
-            font-size: 11px;
-            border: 1px solid rgba(255,255,255,0.1);
-            font-family: 'Courier New', monospace;
-        }
-        .log::-webkit-scrollbar {
-            width: 6px;
-        }
-        .log::-webkit-scrollbar-track {
-            background: rgba(0,0,0,0.2);
-            border-radius: 3px;
-        }
-        .log::-webkit-scrollbar-thumb {
-            background: rgba(255,255,255,0.3);
-            border-radius: 3px;
-        }
-        .log-entry {
-            padding: 6px 8px;
-            margin-bottom: 4px;
-            border-radius: 4px;
-            border-left: 3px solid transparent;
-            line-height: 1.4;
-        }
-        .log-success { 
-            background: rgba(16,185,129,0.15); 
-            border-left-color: #10b981;
-        }
-        .log-error { 
-            background: rgba(239,68,68,0.15); 
-            border-left-color: #ef4444;
-        }
-        .log-info { 
-            background: rgba(59,130,246,0.15); 
-            border-left-color: #3b82f6;
-        }
-        .log-warning { 
-            background: rgba(245,158,11,0.15); 
-            border-left-color: #f59e0b;
-        }
-        .log-time {
-            opacity: 0.6;
-            font-size: 10px;
-            margin-left: 6px;
-        }
+        #haraj-minimize:hover { background: rgba(255,255,255,0.3); transform: rotate(90deg); }
+        #haraj-content { padding: 18px; }
         .speed-control {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 12px;
-            background: rgba(0,0,0,0.2);
-            padding: 8px;
-            border-radius: 6px;
-            border: 1px solid rgba(255,255,255,0.1);
+            display: flex; gap: 8px; margin-bottom: 14px;
+            background: rgba(0,0,0,0.25); padding: 10px; border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.15);
         }
         .speed-btn {
-            flex: 1;
-            padding: 8px;
-            border: 2px solid rgba(255,255,255,0.2);
-            border-radius: 5px;
-            background: rgba(255,255,255,0.1);
-            color: white;
-            font-size: 12px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
+            flex: 1; padding: 10px; border: 2px solid rgba(255,255,255,0.25);
+            border-radius: 6px; background: rgba(255,255,255,0.12); color: white;
+            font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.3s;
         }
         .speed-btn:hover {
-            background: rgba(255,255,255,0.2);
-            border-color: rgba(255,255,255,0.4);
+            background: rgba(255,255,255,0.25); border-color: rgba(255,255,255,0.5);
+            transform: translateY(-2px);
         }
         .speed-btn.active {
-            background: rgba(16,185,129,0.4);
-            border-color: #10b981;
-            box-shadow: 0 0 10px rgba(16,185,129,0.3);
+            background: rgba(16,185,129,0.5); border-color: #10b981;
+            box-shadow: 0 0 15px rgba(16,185,129,0.4);
         }
+        .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+        .haraj-btn {
+            padding: 13px; border: none; border-radius: 8px; font-size: 13px;
+            font-weight: 700; cursor: pointer; transition: all 0.3s;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.3);
+        }
+        .haraj-btn:disabled { opacity: 0.35; cursor: not-allowed; box-shadow: none; }
+        .haraj-btn:hover:not(:disabled) {
+            transform: translateY(-3px); box-shadow: 0 6px 15px rgba(0,0,0,0.4);
+        }
+        .btn-load { background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; }
+        .btn-start { background: linear-gradient(135deg, #10b981, #059669); color: white; }
+        .btn-like { background: linear-gradient(135deg, #f59e0b, #d97706); color: white; }
+        .btn-stop { background: linear-gradient(135deg, #ef4444, #dc2626); color: white; }
+        .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0; }
+        .stat {
+            background: rgba(255,255,255,0.15); padding: 12px; border-radius: 8px;
+            text-align: center; font-size: 12px; border: 1px solid rgba(255,255,255,0.12);
+        }
+        .stat-value { font-size: 26px; font-weight: 800; display: block; margin-bottom: 3px; }
+        .stat-label { font-size: 11px; opacity: 0.9; font-weight: 600; }
+        .progress {
+            width: 100%; height: 10px; background: rgba(0,0,0,0.35); border-radius: 5px;
+            overflow: hidden; margin: 14px 0; border: 1px solid rgba(255,255,255,0.15);
+        }
+        .progress-bar {
+            height: 100%; background: linear-gradient(90deg, #10b981, #34d399, #10b981);
+            background-size: 200% 100%; transition: width 0.3s;
+            box-shadow: 0 0 12px rgba(16,185,129,0.6); animation: shimmer 2s infinite;
+        }
+        @keyframes shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+        .log {
+            background: rgba(0,0,0,0.4); border-radius: 8px; padding: 12px;
+            max-height: 200px; overflow-y: auto; font-size: 11px;
+            border: 1px solid rgba(255,255,255,0.15); font-family: 'Courier New', monospace;
+        }
+        .log::-webkit-scrollbar { width: 8px; }
+        .log::-webkit-scrollbar-track { background: rgba(0,0,0,0.3); border-radius: 4px; }
+        .log::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.4); border-radius: 4px; }
+        .log-entry {
+            padding: 7px 10px; margin-bottom: 5px; border-radius: 5px;
+            border-left: 4px solid transparent; line-height: 1.5;
+        }
+        .log-success { background: rgba(16,185,129,0.2); border-left-color: #10b981; }
+        .log-error { background: rgba(239,68,68,0.2); border-left-color: #ef4444; }
+        .log-info { background: rgba(59,130,246,0.2); border-left-color: #3b82f6; }
+        .log-warning { background: rgba(245,158,11,0.2); border-left-color: #f59e0b; }
+        .log-time { opacity: 0.7; font-size: 10px; margin-left: 8px; }
         .token-warning {
-            background: rgba(239,68,68,0.2);
-            border: 2px solid #ef4444;
-            border-radius: 6px;
-            padding: 10px;
-            margin-bottom: 12px;
-            text-align: center;
-            font-size: 12px;
-            font-weight: 600;
-            display: none;
+            background: rgba(239,68,68,0.25); border: 2px solid #ef4444; border-radius: 8px;
+            padding: 12px; margin-bottom: 14px; text-align: center;
+            font-size: 13px; font-weight: 700; display: none;
         }
-        .token-warning.show {
-            display: block;
-            animation: pulse 2s infinite;
-        }
+        .token-warning.show { display: block; animation: pulse 2s infinite; }
         @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.7; }
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.8; transform: scale(1.02); }
         }
         .btn-relogin {
-            background: #ef4444;
-            color: white;
-            width: 100%;
-            padding: 10px;
-            border: none;
-            border-radius: 6px;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            margin-bottom: 12px;
-            display: none;
+            background: linear-gradient(135deg, #ef4444, #dc2626); color: white;
+            width: 100%; padding: 12px; border: none; border-radius: 8px;
+            font-size: 14px; font-weight: 700; cursor: pointer; margin-bottom: 14px;
+            display: none; box-shadow: 0 4px 12px rgba(239,68,68,0.4);
         }
-        .btn-relogin.show {
-            display: block;
+        .btn-relogin.show { display: block; }
+        .btn-relogin:hover {
+            transform: translateY(-2px); box-shadow: 0 6px 16px rgba(239,68,68,0.5);
         }
         .minimized #haraj-content { display: none; }
     `);
@@ -272,47 +161,29 @@
         menu.id = 'haraj-menu';
         menu.innerHTML = `
             <div id="haraj-header">
-                <h3>🔄 محدث حراج</h3>
+                <h3>🔄 محدث حراج <span class="version-badge">v${VERSION}</span></h3>
                 <button id="haraj-minimize">−</button>
             </div>
             <div id="haraj-content">
-                <div class="token-warning" id="token-warning">
-                    ⚠️ انتهت صلاحية الجلسة - يرجى إعادة تسجيل الدخول
-                </div>
+                <div class="token-warning" id="token-warning">⚠️ انتهت الجلسة - مشكلة من السيرفر</div>
                 <button class="btn-relogin" id="relogin-btn">🔄 إعادة تسجيل الدخول</button>
-                
                 <div class="speed-control">
-                    <button class="speed-btn" data-speed="3">3 لكل دفعة</button>
-                    <button class="speed-btn active" data-speed="6">6 لكل دفعة</button>
-                    <button class="speed-btn" data-speed="12">12 لكل دفعة</button>
+                    <button class="speed-btn" data-speed="3">3 دفعة</button>
+                    <button class="speed-btn active" data-speed="6">6 دفعة</button>
+                    <button class="speed-btn" data-speed="12">12 دفعة</button>
                 </div>
-                
                 <div class="btn-grid">
                     <button class="haraj-btn btn-load" id="load-btn">📋 تحميل</button>
                     <button class="haraj-btn btn-start" id="start-btn" disabled>▶️ تحديث</button>
                     <button class="haraj-btn btn-like" id="like-btn" disabled>❤️ تفضيل</button>
                     <button class="haraj-btn btn-stop" id="stop-btn" disabled>⏸️ إيقاف</button>
                 </div>
-                
                 <div class="stats">
-                    <div class="stat">
-                        <span class="stat-value" id="stat-total">0</span>
-                        <span class="stat-label">إجمالي</span>
-                    </div>
-                    <div class="stat">
-                        <span class="stat-value" id="stat-updated">0</span>
-                        <span class="stat-label">محدث</span>
-                    </div>
-                    <div class="stat">
-                        <span class="stat-value" id="stat-failed">0</span>
-                        <span class="stat-label">فشل</span>
-                    </div>
-                    <div class="stat">
-                        <span class="stat-value" id="stat-remaining">0</span>
-                        <span class="stat-label">متبقي</span>
-                    </div>
+                    <div class="stat"><span class="stat-value" id="stat-total">0</span><span class="stat-label">إجمالي</span></div>
+                    <div class="stat"><span class="stat-value" id="stat-updated">0</span><span class="stat-label">محدث</span></div>
+                    <div class="stat"><span class="stat-value" id="stat-failed">0</span><span class="stat-label">فشل</span></div>
+                    <div class="stat"><span class="stat-value" id="stat-remaining">0</span><span class="stat-label">متبقي</span></div>
                 </div>
-                
                 <div class="progress"><div class="progress-bar" id="progress"></div></div>
                 <div class="log" id="log"></div>
             </div>
@@ -326,22 +197,16 @@
             document.getElementById('haraj-minimize').textContent = menu.classList.contains('minimized') ? '+' : '−';
         };
         
-        // Re-login button
-        document.getElementById('relogin-btn').onclick = () => {
-            window.location.href = 'https://haraj.com.sa/login';
-        };
+        document.getElementById('relogin-btn').onclick = () => window.location.href = 'https://haraj.com.sa/login';
         
-        // Speed control buttons
         document.querySelectorAll('.speed-btn').forEach(btn => {
             btn.onclick = () => {
                 const speed = parseInt(btn.getAttribute('data-speed'));
                 CONFIG.adsPerBatch = speed;
                 GM_setValue('adsPerBatch', speed);
-                
                 document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
-                
-                addLog('info', `⚡ تم تغيير السرعة إلى ${speed} لكل دفعة`);
+                addLog('info', `⚡ السرعة: ${speed} لكل دفعة`);
             };
         });
         
@@ -349,6 +214,8 @@
         document.getElementById('start-btn').onclick = startUpdating;
         document.getElementById('like-btn').onclick = likeAll;
         document.getElementById('stop-btn').onclick = stop;
+        
+        addLog('info', `🚀 محدث حراج v${VERSION} جاهز!`);
     }
 
     function makeDraggable(el) {
@@ -373,52 +240,41 @@
     }
 
     function extractToken() {
-        // Get raw cookie string
         const cookieString = document.cookie;
-        console.log('Raw cookies:', cookieString);
         
-        // Try to extract accessToken with proper decoding
+        // Extract CLIENT_ID from localStorage meta
+        try {
+            const meta = localStorage.getItem('meta');
+            if (meta) {
+                const parsed = JSON.parse(meta);
+                if (parsed.state?.clientId) {
+                    CONFIG.clientId = parsed.state.clientId;
+                    addLog('info', `✓ CLIENT_ID: ${CONFIG.clientId.substring(0, 15)}...`);
+                }
+            }
+        } catch (e) {
+            console.error('Failed to extract clientId from meta:', e);
+        }
+        
+        // Fallback to default if not found
+        if (!CONFIG.clientId) {
+            CONFIG.clientId = '0hxR2sjN-VMMr-QtoI-Sydi-xHqrb6O2M0T8v3';
+            addLog('warning', '⚠ استخدام CLIENT_ID الافتراضي');
+        }
+        
+        // Extract accessToken from cookies
         const accessTokenMatch = cookieString.match(/accessToken=([^;]+)/);
         if (accessTokenMatch) {
-            const rawToken = accessTokenMatch[1];
-            const decodedToken = decodeURIComponent(rawToken);
-            
-            console.log('Raw accessToken:', rawToken);
-            console.log('Decoded accessToken:', decodedToken);
-            console.log('Token length:', decodedToken.length);
-            
-            // Check if it's a valid JWT (3 parts separated by dots)
-            const parts = decodedToken.split('.');
+            const token = decodeURIComponent(accessTokenMatch[1]);
+            const parts = token.split('.');
             if (parts.length === 3) {
-                CONFIG.token = decodedToken;
-                addLog('success', `✓ استخدام accessToken (${parts[0].substring(0, 10)}...)`);
-                console.log('✅ Valid JWT token extracted');
-                return true;
-            } else {
-                console.error('❌ Token does not have 3 parts:', parts.length);
-            }
-        }
-        
-        // Try refreshToken
-        const refreshTokenMatch = cookieString.match(/refreshToken=([^;]+)/);
-        if (refreshTokenMatch) {
-            const rawToken = refreshTokenMatch[1];
-            const decodedToken = decodeURIComponent(rawToken);
-            
-            console.log('Raw refreshToken:', rawToken);
-            console.log('Decoded refreshToken:', decodedToken);
-            
-            const parts = decodedToken.split('.');
-            if (parts.length === 3) {
-                CONFIG.token = decodedToken;
-                addLog('success', `✓ استخدام refreshToken`);
-                console.log('✅ Valid JWT token extracted from refreshToken');
+                CONFIG.token = token;
+                addLog('success', '✓ تم استخراج التوكن');
                 return true;
             }
         }
         
-        addLog('error', '✗ لم يتم العثور على توكن صالح');
-        console.error('❌ No valid JWT token found in cookies');
+        addLog('error', '✗ فشل استخراج التوكن');
         return false;
     }
 
@@ -430,10 +286,8 @@
         for (let i = 0; i < 50; i++) {
             window.scrollTo(0, document.body.scrollHeight);
             await sleep(1000);
-            
             const loadMoreBtn = document.querySelector('[data-testid="posts-load-more"]');
             if (loadMoreBtn && !loadMoreBtn.disabled) loadMoreBtn.click();
-            
             const currentCount = document.querySelectorAll('[data-test-postid]').length;
             if (currentCount === previousCount) break;
             previousCount = currentCount;
@@ -466,18 +320,16 @@
 
     async function startUpdating() {
         if (!extractToken()) {
-            addLog('error', 'فشل استخراج التوكن. الرجاء تسجيل الدخول');
+            addLog('error', 'فشل استخراج التوكن');
             return;
         }
         
-        hideTokenWarning(); // Hide warning if starting fresh
-        
+        hideTokenWarning();
         isRunning = true;
         document.getElementById('start-btn').disabled = true;
         document.getElementById('stop-btn').disabled = false;
         document.getElementById('load-btn').disabled = true;
         document.getElementById('like-btn').disabled = true;
-        
         addLog('info', 'بدء التحديث...');
         await updateBatch();
     }
@@ -510,97 +362,56 @@
 
     async function updatePost(id) {
         try {
-            // Log the request details for debugging
-            const requestBody = {
-                query: `mutation updatePost($token: String!, $id: Int!) {
-                    updatePost(token: $token, id: $id) {
-                        status
-                        notValidReason
-                    }
-                }`,
-                variables: { 
-                    token: CONFIG.token,
-                    id: id 
-                }
-            };
+            const lang = document.documentElement.lang || 'ar';
+            const url = `${CONFIG.graphqlEndpoint}?queryName=updatePost&lang=${lang}&clientId=${CONFIG.clientId}&version=N0.0.1`;
             
-            console.log(`Updating post ${id} with token:`, CONFIG.token.substring(0, 30) + '...');
-            
-            const response = await fetch(CONFIG.graphqlEndpoint + '?queryName=updatePost&clientId=ymZn1c5V-kFw1-HIfT-5zEd-mEHP5dmkhQ6Rv3&version=N0.0.1', {
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: { 
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'Accept': '*/*',
+                    'Origin': 'https://haraj.com.sa',
+                    'Referer': 'https://haraj.com.sa/'
                 },
                 credentials: 'include',
-                body: JSON.stringify(requestBody)
+                body: JSON.stringify({
+                    query: `mutation updatePost($token: String!, $id: Int!) {\n  updatePost(token: $token, id: $id) {\n    status\n    notValidReason\n  }\n}`,
+                    variables: { token: CONFIG.token, id: id }
+                })
             });
 
-            const responseText = await response.text();
-            console.log(`Response for ${id}:`, responseText.substring(0, 200));
-            
-            if (!response.ok) {
-                stats.failed++;
-                addLog('error', `✗ #${id} - HTTP ${response.status}: ${response.statusText || 'خطأ'}`);
-                console.error(`HTTP ${response.status} for post ${id}:`, responseText);
-                return;
-            }
-
-            let data;
-            try {
-                data = JSON.parse(responseText);
-            } catch (e) {
-                stats.failed++;
-                addLog('error', `✗ #${id} - Invalid JSON response`);
-                console.error('JSON parse error:', responseText);
-                return;
-            }
-            
-            if (data.errors) {
-                stats.failed++;
-                addLog('error', `✗ #${id} - GraphQL Error: ${data.errors[0]?.message || 'Unknown'}`);
-                console.error('GraphQL error for', id, ':', data.errors);
-                return;
-            }
+            const data = await response.json();
             
             if (data.data?.updatePost?.status === true) {
                 stats.updated++;
-                addLog('success', `✓ تم تحديث #${id}`);
-                tokenExpiredCount = 0; // Reset counter on success
+                addLog('success', `✓ #${id}`);
+                tokenExpiredCount = 0;
             } else {
                 stats.failed++;
-                const reason = data.data?.updatePost?.notValidReason || 'فشل غير معروف';
+                const reason = data.data?.updatePost?.notValidReason || 'فشل';
                 
-                // Check if token expired
                 if (reason === 'لم يتم تسجيل الدخول') {
                     tokenExpiredCount++;
-                    addLog('error', `✗ #${id}: انتهت صلاحية الجلسة (${tokenExpiredCount}/3)`);
-                    
-                    // If 3+ consecutive token errors, stop and show warning
+                    addLog('error', `✗ #${id}: جلسة منتهية (${tokenExpiredCount}/3)`);
                     if (tokenExpiredCount >= 3) {
-                        addLog('error', '🛑 تم إيقاف التحديث - مشكلة في التوكن');
-                        addLog('info', '💡 جرب: 1) تحديث الصفحة 2) مسح الكوكيز 3) إعادة تسجيل الدخول');
+                        addLog('error', '🛑 مشكلة سيرفر - الجلسة منتهية');
+                        addLog('info', '💡 إعادة الدخول قد تحل المشكلة مؤقتاً');
                         showTokenWarning();
                         stop();
-                        return;
                     }
                 } else {
                     addLog('error', `✗ #${id}: ${reason}`);
                 }
-                
-                console.log('Update failed for', id, ':', data);
             }
         } catch (error) {
             stats.failed++;
-            addLog('error', `✗ #${id} - Network Error: ${error.message}`);
-            console.error('Update error:', error);
+            addLog('error', `✗ #${id}`);
         }
     }
     
     function showTokenWarning() {
         document.getElementById('token-warning').classList.add('show');
         document.getElementById('relogin-btn').classList.add('show');
-        document.getElementById('start-btn').disabled = true;
-        document.getElementById('like-btn').disabled = true;
     }
     
     function hideTokenWarning() {
@@ -619,7 +430,6 @@
         document.getElementById('like-btn').disabled = true;
         document.getElementById('start-btn').disabled = true;
         document.getElementById('stop-btn').disabled = false;
-        
         addLog('info', 'بدء التفضيل...');
         
         for (let i = 0; i < postIds.length; i++) {
@@ -635,47 +445,22 @@
 
     async function likePost(id) {
         try {
-            const response = await fetch(CONFIG.graphqlEndpoint + '?queryName=submitLike&clientId=ymZn1c5V-kFw1-HIfT-5zEd-mEHP5dmkhQ6Rv3&version=N0.0.1', {
+            const response = await fetch(CONFIG.graphqlEndpoint + `?queryName=submitLike&clientId=${CONFIG.clientId}&version=N0.0.1`, {
                 method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
                 body: JSON.stringify({
-                    query: `mutation submitLike($token: String!, $id: Int!) { 
-                        submitLike(token: $token, id: $id) 
-                    }`,
-                    variables: { 
-                        token: CONFIG.token,
-                        id: id 
-                    }
+                    query: `mutation { submitLike(token: "${CONFIG.token}", id: ${id}) }`,
                 })
             });
             
-            if (!response.ok) {
-                stats.failed++;
-                addLog('warning', `⚠ #${id} - HTTP ${response.status}`);
-                return;
-            }
-            
             const data = await response.json();
-            
-            if (data.errors) {
-                stats.failed++;
-                addLog('warning', `⚠ #${id} - ${data.errors[0]?.message || 'Error'}`);
-                return;
-            }
-            
             if (data.data?.submitLike) {
                 stats.updated++;
-                addLog('success', `❤️ تم تفضيل #${id}`);
-            } else {
-                stats.failed++;
-                addLog('warning', `⚠ فشل تفضيل #${id}`);
+                addLog('success', `❤️ #${id}`);
             }
         } catch (error) {
             stats.failed++;
-            addLog('warning', `⚠ #${id} - ${error.message}`);
         }
     }
 
@@ -692,19 +477,17 @@
         document.getElementById('stat-updated').textContent = stats.updated;
         document.getElementById('stat-failed').textContent = stats.failed;
         document.getElementById('stat-remaining').textContent = Math.max(0, stats.total - currentIndex);
-        
         const progress = stats.total > 0 ? (currentIndex / stats.total) * 100 : 0;
         document.getElementById('progress').style.width = progress + '%';
     }
 
     function addLog(type, msg) {
         const log = document.getElementById('log');
+        if (!log) return;
         const entry = document.createElement('div');
         entry.className = `log-entry log-${type}`;
-        
         const time = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         entry.innerHTML = `<span class="log-time">${time}</span> ${msg}`;
-        
         log.insertBefore(entry, log.firstChild);
         while (log.children.length > 100) log.removeChild(log.lastChild);
     }
@@ -718,66 +501,4 @@
     } else {
         createMenu();
     }
-    
-    // Intercept both fetch and XMLHttpRequest
-    const originalFetch = window.fetch;
-    window.fetch = function(...args) {
-        const url = args[0];
-        if (typeof url === 'string' && (url.includes('graphql') || url.includes('updatePost'))) {
-            console.log('🔍 FETCH INTERCEPTED:', url);
-            console.log('Options:', args[1]);
-            if (args[1]?.body) {
-                try {
-                    const body = JSON.parse(args[1].body);
-                    console.log('Body:', body);
-                    if (body.query && body.query.includes('updatePost')) {
-                        console.log('⭐ THIS IS THE UPDATE POST REQUEST!');
-                        console.log('Variables:', body.variables);
-                    }
-                } catch(e) {
-                    console.log('Body (raw):', args[1].body);
-                }
-            }
-        }
-        return originalFetch.apply(this, args);
-    };
-    
-    const originalXHR = window.XMLHttpRequest;
-    window.XMLHttpRequest = function() {
-        const xhr = new originalXHR();
-        const originalOpen = xhr.open;
-        const originalSend = xhr.send;
-        
-        let requestURL = '';
-        let requestBody = '';
-        
-        xhr.open = function(method, url, ...rest) {
-            requestURL = url;
-            if (url.includes('graphql') || url.includes('updatePost')) {
-                console.log('🔍 XHR INTERCEPTED:', method, url);
-            }
-            return originalOpen.apply(this, [method, url, ...rest]);
-        };
-        
-        xhr.send = function(body) {
-            if (requestURL.includes('graphql') || requestURL.includes('updatePost')) {
-                console.log('XHR Body:', body);
-                try {
-                    const parsed = JSON.parse(body);
-                    if (parsed.query && parsed.query.includes('updatePost')) {
-                        console.log('⭐ THIS IS THE UPDATE POST REQUEST!');
-                        console.log('Variables:', parsed.variables);
-                    }
-                } catch(e) {}
-            }
-            return originalSend.apply(this, arguments);
-        };
-        
-        return xhr;
-    };
-    
-    console.log('✅ Haraj Updater v4.4.0 loaded');
-    console.log('🔍 Network interceptors active (fetch + XHR)');
-    console.log('💡 Go to your posts page and click تحديث on any post');
-    console.log('💡 OR open Network tab (F12) and filter by "updatePost" to see the real request');
 })();
