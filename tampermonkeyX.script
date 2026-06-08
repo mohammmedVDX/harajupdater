@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Haraj Auto Updater - محدث حراج التلقائي
 // @namespace    http://tampermonkey.net/
-// @version      5.6.0
+// @version      5.7.0
 // @description  Auto update Haraj ads - تحديث إعلانات حراج تلقائياً
 // @author       You
 // @match        https://haraj.com.sa/*
@@ -19,7 +19,7 @@
 
 (function() {
     'use strict';
-    const VERSION = '5.6.0';
+    const VERSION = '5.7.0';
     
     const CONFIG = {
         updateInterval: GM_getValue('updateInterval', 1000),
@@ -239,33 +239,63 @@
         makeDraggable(menu, menu.querySelector('#haraj-header'));
         makeDraggable(toggleBtn, toggleBtn);
         
-        // Toggle button click handler
-        let clickTimer = null;
-        let isDragging = false;
+        // Toggle button touch/click handler
+        let touchStartTime = 0;
+        let touchMoved = false;
         
-        toggleBtn.addEventListener('mousedown', () => { isDragging = false; });
-        toggleBtn.addEventListener('mousemove', () => { isDragging = true; });
-        toggleBtn.addEventListener('touchmove', () => { isDragging = true; });
+        toggleBtn.addEventListener('touchstart', (e) => {
+            touchStartTime = Date.now();
+            touchMoved = false;
+        }, { passive: true });
         
-        toggleBtn.addEventListener('click', (e) => {
-            if (!isDragging) {
-                menu.classList.toggle('minimized');
-                toggleBtn.classList.toggle('show');
-                
-                if (!menu.classList.contains('minimized')) {
-                    // Sync positions when showing menu
-                    menu.style.top = toggleBtn.style.top || '8px';
-                    menu.style.left = toggleBtn.style.left || 'auto';
-                    menu.style.right = toggleBtn.style.right || '8px';
-                }
+        toggleBtn.addEventListener('touchmove', (e) => {
+            touchMoved = true;
+        }, { passive: true });
+        
+        toggleBtn.addEventListener('touchend', (e) => {
+            if (!touchMoved && (Date.now() - touchStartTime < 300)) {
+                e.preventDefault();
+                menu.classList.remove('minimized');
+                toggleBtn.classList.remove('show');
+                // Sync positions when showing menu
+                menu.style.top = toggleBtn.style.top || '8px';
+                menu.style.left = toggleBtn.style.left || 'auto';
+                menu.style.right = toggleBtn.style.right || '8px';
             }
-            isDragging = false;
         });
         
-        // Double click on header to minimize
+        toggleBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            menu.classList.remove('minimized');
+            toggleBtn.classList.remove('show');
+            // Sync positions when showing menu
+            menu.style.top = toggleBtn.style.top || '8px';
+            menu.style.left = toggleBtn.style.left || 'auto';
+            menu.style.right = toggleBtn.style.right || '8px';
+        });
+        
+        // Double tap on header to minimize
+        let lastTapTime = 0;
+        const header = menu.querySelector('#haraj-header');
+        
+        header.addEventListener('touchend', (e) => {
+            const currentTime = Date.now();
+            if (currentTime - lastTapTime < 300) {
+                e.preventDefault();
+                menu.classList.add('minimized');
+                toggleBtn.classList.add('show');
+                // Sync positions
+                toggleBtn.style.top = menu.style.top;
+                toggleBtn.style.left = menu.style.left;
+                toggleBtn.style.right = menu.style.right;
+            }
+            lastTapTime = currentTime;
+        });
+        
+        // Double click for desktop
         let lastClickTime = 0;
-        menu.querySelector('#haraj-header').addEventListener('click', (e) => {
-            const currentTime = new Date().getTime();
+        header.addEventListener('click', (e) => {
+            const currentTime = Date.now();
             if (currentTime - lastClickTime < 300) {
                 menu.classList.add('minimized');
                 toggleBtn.classList.add('show');
@@ -301,48 +331,75 @@
     function makeDraggable(el, dragHandle) {
         const handle = dragHandle || el;
         let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
-        let hasMoved = false;
+        let isDragging = false;
+        let touchStartX = 0;
+        let touchStartY = 0;
         
-        // Mouse events
-        handle.addEventListener('mousedown', dragStart);
-        
-        // Touch events for mobile
+        // Touch events for mobile (PRIMARY)
         handle.addEventListener('touchstart', function(e) {
             const touch = e.touches[0];
             pos3 = touch.clientX;
             pos4 = touch.clientY;
-            hasMoved = false;
-            document.addEventListener('touchmove', dragMove, { passive: false });
-            document.addEventListener('touchend', dragEnd);
+            touchStartX = touch.clientX;
+            touchStartY = touch.clientY;
+            isDragging = false;
+        }, { passive: true });
+        
+        handle.addEventListener('touchmove', function(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            
+            // Check if moved significantly
+            const deltaX = Math.abs(touch.clientX - touchStartX);
+            const deltaY = Math.abs(touch.clientY - touchStartY);
+            if (deltaX > 5 || deltaY > 5) {
+                isDragging = true;
+            }
+            
+            if (isDragging) {
+                const clientX = touch.clientX;
+                const clientY = touch.clientY;
+                
+                pos1 = pos3 - clientX;
+                pos2 = pos4 - clientY;
+                pos3 = clientX;
+                pos4 = clientY;
+                
+                let newTop = el.offsetTop - pos2;
+                let newLeft = el.offsetLeft - pos1;
+                
+                // Keep within viewport
+                newTop = Math.max(0, Math.min(newTop, window.innerHeight - el.offsetHeight));
+                newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - el.offsetWidth));
+                
+                el.style.top = newTop + "px";
+                el.style.right = "auto";
+                el.style.left = newLeft + "px";
+            }
         }, { passive: false });
         
-        function dragStart(e) {
+        handle.addEventListener('touchend', function(e) {
+            isDragging = false;
+        }, { passive: true });
+        
+        // Mouse events for desktop
+        handle.addEventListener('mousedown', function(e) {
             e.preventDefault();
             pos3 = e.clientX;
             pos4 = e.clientY;
-            hasMoved = false;
-            document.addEventListener('mouseup', dragEnd);
-            document.addEventListener('mousemove', dragMove);
-        }
+            isDragging = false;
+            document.addEventListener('mousemove', mouseMove);
+            document.addEventListener('mouseup', mouseUp);
+        });
         
-        function dragMove(e) {
+        function mouseMove(e) {
             e.preventDefault();
-            hasMoved = true;
+            isDragging = true;
             
-            let clientX, clientY;
-            
-            if (e.type === 'touchmove') {
-                clientX = e.touches[0].clientX;
-                clientY = e.touches[0].clientY;
-            } else {
-                clientX = e.clientX;
-                clientY = e.clientY;
-            }
-            
-            pos1 = pos3 - clientX;
-            pos2 = pos4 - clientY;
-            pos3 = clientX;
-            pos4 = clientY;
+            pos1 = pos3 - e.clientX;
+            pos2 = pos4 - e.clientY;
+            pos3 = e.clientX;
+            pos4 = e.clientY;
             
             let newTop = el.offsetTop - pos2;
             let newLeft = el.offsetLeft - pos1;
@@ -356,11 +413,9 @@
             el.style.left = newLeft + "px";
         }
         
-        function dragEnd() {
-            document.removeEventListener('mouseup', dragEnd);
-            document.removeEventListener('mousemove', dragMove);
-            document.removeEventListener('touchmove', dragMove);
-            document.removeEventListener('touchend', dragEnd);
+        function mouseUp() {
+            document.removeEventListener('mousemove', mouseMove);
+            document.removeEventListener('mouseup', mouseUp);
         }
     }
 
