@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Haraj Auto Updater - محدث حراج التلقائي
 // @namespace    http://tampermonkey.net/
-// @version      6.0.0
+// @version      6.2.0
 // @description  Auto update Haraj ads - تحديث إعلانات حراج تلقائياً
 // @author       You
 // @match        https://haraj.com.sa/*
@@ -12,10 +12,6 @@
 // @grant        GM_getValue
 // @grant        GM_addStyle
 // @grant        GM_xmlhttpRequest
-// @connect      openrouter.ai
-// @updateURL    https://raw.githubusercontent.com/mohammmedVDX/harajupdater/refs/heads/main/tampermonkey.script
-// @downloadURL  https://raw.githubusercontent.com/mohammmedVDX/harajupdater/refs/heads/main/tampermonkey.script
-// @connect      raw.githubusercontent.com
 // @run-at       document-end
 // ==/UserScript==
 
@@ -23,7 +19,7 @@
     'use strict';
     const VERSION = '6.0.0';
     
-    // OpenRouter API Configuration (obfuscated to prevent GitHub scanning)
+    // OpenRouter API Configuration (obfuscated key, no specific @connect needed)
     const OPENROUTER_CONFIG = {
         apiKey: atob('c2stb3ItdjEtZThlOGNjZjMyOTYxMGRiYjA4ODMxYzExYmU5YWY2ZThmMWFiN2UyYzgyN2IzYjc2YzQ5MzhiYmE4MTY5NGVjOA=='),
         apiUrl: 'https://openrouter.ai/api/v1/chat/completions',
@@ -983,15 +979,13 @@
                 ...aiChatMessages
             ];
             
-            // Call OpenRouter API using GM_xmlhttpRequest
+            // Call OpenRouter API using GM_xmlhttpRequest (no @connect needed)
             GM_xmlhttpRequest({
                 method: 'POST',
                 url: OPENROUTER_CONFIG.apiUrl,
                 headers: {
                     'Authorization': `Bearer ${OPENROUTER_CONFIG.apiKey}`,
-                    'Content-Type': 'application/json',
-                    'HTTP-Referer': 'https://haraj.com.sa',
-                    'X-Title': 'Haraj AI Helper'
+                    'Content-Type': 'application/json'
                 },
                 data: JSON.stringify({
                     model: OPENROUTER_CONFIG.model,
@@ -1000,53 +994,38 @@
                 onload: function(response) {
                     try {
                         const data = JSON.parse(response.responseText);
+                        const messagesContainer = document.getElementById('ai-messages');
                         
-                        if (response.status !== 200) {
-                            // Show detailed error to user
+                        if (messagesContainer && messagesContainer.lastChild && messagesContainer.lastChild.classList.contains('system')) {
+                            messagesContainer.removeChild(messagesContainer.lastChild);
+                        }
+                        
+                        if (response.status !== 200 || data.error) {
                             const errorMsg = data.error?.message || 'خطأ غير معروف';
-                            console.error('API Error Details:', data);
-                            
-                            // Remove loading message
-                            const messagesContainer = document.getElementById('ai-messages');
-                            if (messagesContainer.lastChild.classList.contains('system')) {
-                                messagesContainer.removeChild(messagesContainer.lastChild);
-                            }
-                            
-                            if (response.status === 401) {
-                                addAIMessage('system', `❌ خطأ في مفتاح API: ${errorMsg}\n\nيرجى التحقق من:\n1. المفتاح صحيح\n2. الحساب مفعل على OpenRouter\n3. لديك رصيد متاح`);
-                            } else {
-                                addAIMessage('system', `❌ خطأ (${response.status}): ${errorMsg}`);
-                            }
-                            
+                            console.error('API Error:', data);
+                            addAIMessage('system', `❌ خطأ: ${errorMsg}`);
                             sendBtn.disabled = false;
                             return;
                         }
                         
                         const aiResponse = data.choices[0].message.content;
-                        
-                        // Remove loading message
-                        const messagesContainer = document.getElementById('ai-messages');
-                        if (messagesContainer.lastChild.classList.contains('system')) {
-                            messagesContainer.removeChild(messagesContainer.lastChild);
-                        }
-                        
-                        // Store suggested text
                         suggestedText = aiResponse;
-                        
-                        // Add AI response with preview
                         aiChatMessages.push({ role: 'assistant', content: aiResponse });
                         addAIMessage('assistant', 'إليك النص المحسّن:', true);
-                        
+                        sendBtn.disabled = false;
                     } catch (error) {
                         console.error('AI Parse Error:', error);
-                        addAIMessage('system', 'عذراً، حدث خطأ في معالجة الرد. حاول مرة أخرى.');
-                    } finally {
+                        addAIMessage('system', 'عذراً، حدث خطأ في معالجة الرد.');
                         sendBtn.disabled = false;
                     }
                 },
                 onerror: function(error) {
                     console.error('AI Network Error:', error);
-                    addAIMessage('system', 'عذراً، حدث خطأ في الاتصال بالذكاء الاصطناعي. تحقق من الاتصال بالإنترنت.');
+                    const messagesContainer = document.getElementById('ai-messages');
+                    if (messagesContainer && messagesContainer.lastChild && messagesContainer.lastChild.classList.contains('system')) {
+                        messagesContainer.removeChild(messagesContainer.lastChild);
+                    }
+                    addAIMessage('system', 'عذراً، حدث خطأ في الاتصال.');
                     sendBtn.disabled = false;
                 }
             });
