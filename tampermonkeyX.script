@@ -27,7 +27,7 @@
     const OPENROUTER_CONFIG = {
         apiKey: atob('c2stb3ItdjEtZThlOGNjZjMyOTYxMGRiYjA4ODMxYzExYmU5YWY2ZThmMWFiN2UyYzgyN2IzYjc2YzQ5MzhiYmE4MTY5NGVjOA=='),
         apiUrl: 'https://openrouter.ai/api/v1/chat/completions',
-        model: 'google/gemini-flash-1.5-8b-exp'
+        model: 'google/gemma-4-31b-it:free'
     };
     
     const CONFIG = {
