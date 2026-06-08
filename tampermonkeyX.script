@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Haraj Auto Updater - محدث حراج التلقائي
 // @namespace    http://tampermonkey.net/
-// @version      5.8.0
+// @version      6.0.0
 // @description  Auto update Haraj ads - تحديث إعلانات حراج تلقائياً
 // @author       You
 // @match        https://haraj.com.sa/*
@@ -21,13 +21,13 @@
 
 (function() {
     'use strict';
-    const VERSION = '5.8.0';
+    const VERSION = '6.0.0';
     
     // OpenRouter API Configuration
     const OPENROUTER_CONFIG = {
         apiKey: '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',
         apiUrl: 'https://openrouter.ai/api/v1/chat/completions',
-        model: 'google/gemma-4-31b-it:free'
+        model: 'google/gemma-4-31b-it:free'  // Changed to a more reliable free model
     };
     
     const CONFIG = {
@@ -922,14 +922,32 @@
         messageDiv.className = `ai-message ${role}`;
         
         if (showPreview && role === 'assistant') {
-            messageDiv.innerHTML = `
-                <div>${content}</div>
-                <div class="ai-preview-box">${suggestedText}</div>
-                <div class="ai-action-btns">
-                    <button class="ai-action-btn accept" onclick="window.acceptAIText()">✓ قبول التغييرات</button>
-                    <button class="ai-action-btn decline" onclick="window.declineAIText()">✗ رفض</button>
-                </div>
-            `;
+            const textNode = document.createElement('div');
+            textNode.textContent = content;
+            
+            const previewBox = document.createElement('div');
+            previewBox.className = 'ai-preview-box';
+            previewBox.textContent = suggestedText;
+            
+            const actionBtns = document.createElement('div');
+            actionBtns.className = 'ai-action-btns';
+            
+            const acceptBtn = document.createElement('button');
+            acceptBtn.className = 'ai-action-btn accept';
+            acceptBtn.textContent = '✓ قبول التغييرات';
+            acceptBtn.addEventListener('click', acceptAIText);
+            
+            const declineBtn = document.createElement('button');
+            declineBtn.className = 'ai-action-btn decline';
+            declineBtn.textContent = '✗ رفض';
+            declineBtn.addEventListener('click', declineAIText);
+            
+            actionBtns.appendChild(acceptBtn);
+            actionBtns.appendChild(declineBtn);
+            
+            messageDiv.appendChild(textNode);
+            messageDiv.appendChild(previewBox);
+            messageDiv.appendChild(actionBtns);
         } else {
             messageDiv.textContent = content;
         }
@@ -973,7 +991,7 @@
                     'Authorization': `Bearer ${OPENROUTER_CONFIG.apiKey}`,
                     'Content-Type': 'application/json',
                     'HTTP-Referer': 'https://haraj.com.sa',
-                    'X-Title': 'Haraj Auto Updater AI'
+                    'X-Title': 'Haraj AI Helper'
                 },
                 data: JSON.stringify({
                     model: OPENROUTER_CONFIG.model,
@@ -981,11 +999,29 @@
                 }),
                 onload: function(response) {
                     try {
+                        const data = JSON.parse(response.responseText);
+                        
                         if (response.status !== 200) {
-                            throw new Error(`API Error: ${response.status} - ${response.responseText}`);
+                            // Show detailed error to user
+                            const errorMsg = data.error?.message || 'خطأ غير معروف';
+                            console.error('API Error Details:', data);
+                            
+                            // Remove loading message
+                            const messagesContainer = document.getElementById('ai-messages');
+                            if (messagesContainer.lastChild.classList.contains('system')) {
+                                messagesContainer.removeChild(messagesContainer.lastChild);
+                            }
+                            
+                            if (response.status === 401) {
+                                addAIMessage('system', `❌ خطأ في مفتاح API: ${errorMsg}\n\nيرجى التحقق من:\n1. المفتاح صحيح\n2. الحساب مفعل على OpenRouter\n3. لديك رصيد متاح`);
+                            } else {
+                                addAIMessage('system', `❌ خطأ (${response.status}): ${errorMsg}`);
+                            }
+                            
+                            sendBtn.disabled = false;
+                            return;
                         }
                         
-                        const data = JSON.parse(response.responseText);
                         const aiResponse = data.choices[0].message.content;
                         
                         // Remove loading message
@@ -1022,8 +1058,8 @@
         }
     }
     
-    // Global functions for accept/decline
-    window.acceptAIText = function() {
+    // Accept/Decline functions
+    function acceptAIText() {
         if (currentTextarea && suggestedText) {
             currentTextarea.value = suggestedText;
             // Trigger change event
@@ -1032,12 +1068,12 @@
             addAIMessage('system', '✓ تم تطبيق التغييرات بنجاح!');
             suggestedText = '';
         }
-    };
+    }
     
-    window.declineAIText = function() {
+    function declineAIText() {
         addAIMessage('system', 'تم رفض التغييرات. يمكنك طلب تعديل آخر.');
         suggestedText = '';
-    };
+    }
     
     // Watch for textarea to appear
     function watchForTextarea() {
