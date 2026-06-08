@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Haraj Auto Updater - محدث حراج التلقائي
 // @namespace    http://tampermonkey.net/
-// @version      5.7.0
+// @version      5.8.0
 // @description  Auto update Haraj ads - تحديث إعلانات حراج تلقائياً
 // @author       You
 // @match        https://haraj.com.sa/*
@@ -19,7 +19,7 @@
 
 (function() {
     'use strict';
-    const VERSION = '5.7.0';
+    const VERSION = '5.8.0';
     
     const CONFIG = {
         updateInterval: GM_getValue('updateInterval', 1000),
@@ -56,11 +56,25 @@
             display: flex !important; justify-content: space-between !important; align-items: center !important;
             border-radius: 6px 6px 0 0 !important; border-bottom: 2px solid rgba(255,255,255,0.1) !important;
             touch-action: none !important;
+            -webkit-user-select: none !important;
+            user-select: none !important;
         }
         #haraj-header h3 {
             margin: 0 !important; font-size: 11px !important; font-weight: 700 !important; 
             letter-spacing: 0.2px !important; display: flex !important; align-items: center !important; gap: 4px !important;
             color: white !important;
+            flex: 1 !important;
+        }
+        .minimize-btn {
+            background: rgba(255,255,255,0.2) !important; border: none !important; color: white !important;
+            width: 24px !important; height: 24px !important; border-radius: 4px !important; cursor: pointer !important;
+            font-size: 16px !important; font-weight: bold !important; transition: all 0.2s !important;
+            display: flex !important; align-items: center !important; justify-content: center !important;
+            -webkit-tap-highlight-color: transparent !important;
+            flex-shrink: 0 !important;
+        }
+        .minimize-btn:active {
+            background: rgba(255,255,255,0.4) !important; transform: scale(0.9) !important;
         }
         .version-badge {
             font-size: 7px !important; background: rgba(16,185,129,0.3) !important; padding: 1px 4px !important;
@@ -190,8 +204,10 @@
             transform: scale(0.9) !important; box-shadow: 0 1px 4px rgba(239,68,68,0.5) !important;
         }
         #haraj-content { 
-            opacity: 1 !important;
-            transition: opacity 0.3s ease !important;
+            padding: 8px !important;
+        }
+        #haraj-menu.minimized #haraj-content { 
+            display: none !important;
         }
     `);
 
@@ -208,6 +224,7 @@
         menu.innerHTML = `
             <div id="haraj-header">
                 <h3>🔄 محدث حراج <span class="version-badge">v${VERSION}</span></h3>
+                <button class="minimize-btn">−</button>
             </div>
             <div id="haraj-content">
                 <div class="token-warning" id="token-warning">⚠️ انتهت الجلسة - مشكلة من السيرفر</div>
@@ -235,76 +252,28 @@
         `;
         document.body.appendChild(menu);
         
-        // Make both menu and toggle button draggable
+        // Make menu draggable by header
         makeDraggable(menu, menu.querySelector('#haraj-header'));
+        
+        // Make toggle button draggable
         makeDraggable(toggleBtn, toggleBtn);
         
-        // Toggle button touch/click handler
-        let touchStartTime = 0;
-        let touchMoved = false;
-        
-        toggleBtn.addEventListener('touchstart', (e) => {
-            touchStartTime = Date.now();
-            touchMoved = false;
-        }, { passive: true });
-        
-        toggleBtn.addEventListener('touchmove', (e) => {
-            touchMoved = true;
-        }, { passive: true });
-        
-        toggleBtn.addEventListener('touchend', (e) => {
-            if (!touchMoved && (Date.now() - touchStartTime < 300)) {
-                e.preventDefault();
-                menu.classList.remove('minimized');
-                toggleBtn.classList.remove('show');
-                // Sync positions when showing menu
-                menu.style.top = toggleBtn.style.top || '8px';
-                menu.style.left = toggleBtn.style.left || 'auto';
-                menu.style.right = toggleBtn.style.right || '8px';
-            }
+        // Minimize button handler
+        const minimizeBtn = menu.querySelector('.minimize-btn');
+        minimizeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            menu.classList.add('minimized');
+            toggleBtn.classList.add('show');
+            // Sync positions
+            toggleBtn.style.top = menu.style.top || '8px';
+            toggleBtn.style.left = menu.style.left || 'auto';
+            toggleBtn.style.right = menu.style.right || '8px';
         });
         
+        // Toggle button handler - show menu
         toggleBtn.addEventListener('click', (e) => {
-            e.preventDefault();
             menu.classList.remove('minimized');
             toggleBtn.classList.remove('show');
-            // Sync positions when showing menu
-            menu.style.top = toggleBtn.style.top || '8px';
-            menu.style.left = toggleBtn.style.left || 'auto';
-            menu.style.right = toggleBtn.style.right || '8px';
-        });
-        
-        // Double tap on header to minimize
-        let lastTapTime = 0;
-        const header = menu.querySelector('#haraj-header');
-        
-        header.addEventListener('touchend', (e) => {
-            const currentTime = Date.now();
-            if (currentTime - lastTapTime < 300) {
-                e.preventDefault();
-                menu.classList.add('minimized');
-                toggleBtn.classList.add('show');
-                // Sync positions
-                toggleBtn.style.top = menu.style.top;
-                toggleBtn.style.left = menu.style.left;
-                toggleBtn.style.right = menu.style.right;
-            }
-            lastTapTime = currentTime;
-        });
-        
-        // Double click for desktop
-        let lastClickTime = 0;
-        header.addEventListener('click', (e) => {
-            const currentTime = Date.now();
-            if (currentTime - lastClickTime < 300) {
-                menu.classList.add('minimized');
-                toggleBtn.classList.add('show');
-                // Sync positions
-                toggleBtn.style.top = menu.style.top;
-                toggleBtn.style.left = menu.style.left;
-                toggleBtn.style.right = menu.style.right;
-            }
-            lastClickTime = currentTime;
         });
         
         document.getElementById('relogin-btn').onclick = () => window.location.href = 'https://haraj.com.sa/login';
@@ -332,58 +301,51 @@
         const handle = dragHandle || el;
         let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
         let isDragging = false;
-        let touchStartX = 0;
-        let touchStartY = 0;
         
-        // Touch events for mobile (PRIMARY)
+        // Touch events for mobile
         handle.addEventListener('touchstart', function(e) {
+            // Don't drag if clicking on a button
+            if (e.target.tagName === 'BUTTON') return;
+            
             const touch = e.touches[0];
             pos3 = touch.clientX;
             pos4 = touch.clientY;
-            touchStartX = touch.clientX;
-            touchStartY = touch.clientY;
             isDragging = false;
         }, { passive: true });
         
         handle.addEventListener('touchmove', function(e) {
+            // Don't drag if clicking on a button
+            if (e.target.tagName === 'BUTTON') return;
+            
             e.preventDefault();
+            isDragging = true;
+            
             const touch = e.touches[0];
+            const clientX = touch.clientX;
+            const clientY = touch.clientY;
             
-            // Check if moved significantly
-            const deltaX = Math.abs(touch.clientX - touchStartX);
-            const deltaY = Math.abs(touch.clientY - touchStartY);
-            if (deltaX > 5 || deltaY > 5) {
-                isDragging = true;
-            }
+            pos1 = pos3 - clientX;
+            pos2 = pos4 - clientY;
+            pos3 = clientX;
+            pos4 = clientY;
             
-            if (isDragging) {
-                const clientX = touch.clientX;
-                const clientY = touch.clientY;
-                
-                pos1 = pos3 - clientX;
-                pos2 = pos4 - clientY;
-                pos3 = clientX;
-                pos4 = clientY;
-                
-                let newTop = el.offsetTop - pos2;
-                let newLeft = el.offsetLeft - pos1;
-                
-                // Keep within viewport
-                newTop = Math.max(0, Math.min(newTop, window.innerHeight - el.offsetHeight));
-                newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - el.offsetWidth));
-                
-                el.style.top = newTop + "px";
-                el.style.right = "auto";
-                el.style.left = newLeft + "px";
-            }
+            let newTop = el.offsetTop - pos2;
+            let newLeft = el.offsetLeft - pos1;
+            
+            // Keep within viewport
+            newTop = Math.max(0, Math.min(newTop, window.innerHeight - el.offsetHeight));
+            newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - el.offsetWidth));
+            
+            el.style.top = newTop + "px";
+            el.style.right = "auto";
+            el.style.left = newLeft + "px";
         }, { passive: false });
-        
-        handle.addEventListener('touchend', function(e) {
-            isDragging = false;
-        }, { passive: true });
         
         // Mouse events for desktop
         handle.addEventListener('mousedown', function(e) {
+            // Don't drag if clicking on a button
+            if (e.target.tagName === 'BUTTON') return;
+            
             e.preventDefault();
             pos3 = e.clientX;
             pos4 = e.clientY;
