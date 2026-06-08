@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Haraj Auto Updater - محدث حراج التلقائي
 // @namespace    http://tampermonkey.net/
-// @version      5.8.0
+// @version      5.9.0
 // @description  Auto update Haraj ads - تحديث إعلانات حراج تلقائياً
 // @author       You
 // @match        https://haraj.com.sa/*
@@ -19,7 +19,14 @@
 
 (function() {
     'use strict';
-    const VERSION = '5.8.0';
+    const VERSION = '5.9.0';
+    
+    // OpenRouter API Configuration
+    const OPENROUTER_CONFIG = {
+        apiKey: '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',
+        apiUrl: 'https://openrouter.ai/api/v1/chat/completions',
+        model: 'google/gemma-4-31b-it:free'
+    };
     
     const CONFIG = {
         updateInterval: GM_getValue('updateInterval', 1000),
@@ -208,6 +215,200 @@
         }
         #haraj-menu.minimized #haraj-content { 
             display: none !important;
+        }
+        
+        /* AI Chat Styles */
+        .ai-helper-btn {
+            position: absolute !important;
+            bottom: 8px !important;
+            left: 8px !important;
+            width: 40px !important;
+            height: 40px !important;
+            background: linear-gradient(145deg, #10b981, #059669) !important;
+            border: 2px solid rgba(255,255,255,0.4) !important;
+            border-radius: 50% !important;
+            box-shadow: 0 4px 12px rgba(16,185,129,0.4) !important;
+            cursor: pointer !important;
+            z-index: 999997 !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            font-size: 20px !important;
+            color: white !important;
+            -webkit-tap-highlight-color: transparent !important;
+            transition: transform 0.2s ease !important;
+        }
+        .ai-helper-btn:active {
+            transform: scale(0.9) !important;
+        }
+        
+        #ai-chat-panel {
+            position: fixed !important;
+            bottom: 60px !important;
+            left: 8px !important;
+            width: calc(100vw - 16px) !important;
+            max-width: 360px !important;
+            max-height: 70vh !important;
+            background: linear-gradient(145deg, #10b981 0%, #059669 100%) !important;
+            border-radius: 12px !important;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.6) !important;
+            z-index: 999998 !important;
+            display: none !important;
+            flex-direction: column !important;
+            border: 2px solid rgba(255,255,255,0.2) !important;
+            color: white !important;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+        }
+        #ai-chat-panel.show {
+            display: flex !important;
+        }
+        
+        .ai-chat-header {
+            background: rgba(0,0,0,0.3) !important;
+            padding: 10px 12px !important;
+            border-radius: 10px 10px 0 0 !important;
+            border-bottom: 2px solid rgba(255,255,255,0.15) !important;
+            display: flex !important;
+            justify-content: space-between !important;
+            align-items: center !important;
+        }
+        .ai-chat-header h4 {
+            margin: 0 !important;
+            font-size: 13px !important;
+            font-weight: 700 !important;
+            color: white !important;
+        }
+        .ai-close-btn {
+            background: rgba(255,255,255,0.2) !important;
+            border: none !important;
+            color: white !important;
+            width: 24px !important;
+            height: 24px !important;
+            border-radius: 4px !important;
+            cursor: pointer !important;
+            font-size: 16px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+        }
+        
+        .ai-chat-messages {
+            flex: 1 !important;
+            overflow-y: auto !important;
+            padding: 10px !important;
+            direction: rtl !important;
+        }
+        .ai-chat-messages::-webkit-scrollbar { width: 6px !important; }
+        .ai-chat-messages::-webkit-scrollbar-track { background: rgba(0,0,0,0.2) !important; }
+        .ai-chat-messages::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.3) !important; border-radius: 3px !important; }
+        
+        .ai-message {
+            margin-bottom: 8px !important;
+            padding: 8px 10px !important;
+            border-radius: 8px !important;
+            font-size: 11px !important;
+            line-height: 1.4 !important;
+            word-wrap: break-word !important;
+        }
+        .ai-message.user {
+            background: rgba(255,255,255,0.25) !important;
+            margin-left: 30px !important;
+        }
+        .ai-message.assistant {
+            background: rgba(0,0,0,0.3) !important;
+            margin-right: 30px !important;
+        }
+        .ai-message.system {
+            background: rgba(59,130,246,0.3) !important;
+            text-align: center !important;
+            font-size: 10px !important;
+            font-style: italic !important;
+        }
+        
+        .ai-preview-box {
+            background: rgba(0,0,0,0.4) !important;
+            border: 2px solid rgba(255,255,255,0.2) !important;
+            border-radius: 6px !important;
+            padding: 8px !important;
+            margin: 8px 0 !important;
+            max-height: 120px !important;
+            overflow-y: auto !important;
+            font-size: 10px !important;
+            white-space: pre-wrap !important;
+            direction: rtl !important;
+        }
+        
+        .ai-action-btns {
+            display: flex !important;
+            gap: 6px !important;
+            margin-top: 6px !important;
+        }
+        .ai-action-btn {
+            flex: 1 !important;
+            padding: 6px !important;
+            border: none !important;
+            border-radius: 5px !important;
+            font-size: 10px !important;
+            font-weight: 700 !important;
+            cursor: pointer !important;
+            color: white !important;
+            -webkit-tap-highlight-color: transparent !important;
+        }
+        .ai-action-btn.accept {
+            background: rgba(16,185,129,0.8) !important;
+        }
+        .ai-action-btn.decline {
+            background: rgba(239,68,68,0.8) !important;
+        }
+        .ai-action-btn:active {
+            transform: scale(0.95) !important;
+        }
+        
+        .ai-chat-input-area {
+            padding: 8px !important;
+            background: rgba(0,0,0,0.2) !important;
+            border-radius: 0 0 10px 10px !important;
+        }
+        .ai-input-wrapper {
+            display: flex !important;
+            gap: 6px !important;
+        }
+        .ai-chat-input {
+            flex: 1 !important;
+            background: rgba(255,255,255,0.2) !important;
+            border: 1px solid rgba(255,255,255,0.3) !important;
+            border-radius: 6px !important;
+            padding: 8px !important;
+            color: white !important;
+            font-size: 11px !important;
+            outline: none !important;
+            direction: rtl !important;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+        }
+        .ai-chat-input::placeholder {
+            color: rgba(255,255,255,0.6) !important;
+        }
+        .ai-send-btn {
+            width: 40px !important;
+            height: 40px !important;
+            background: rgba(255,255,255,0.25) !important;
+            border: none !important;
+            border-radius: 6px !important;
+            color: white !important;
+            font-size: 18px !important;
+            cursor: pointer !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            -webkit-tap-highlight-color: transparent !important;
+        }
+        .ai-send-btn:active {
+            background: rgba(255,255,255,0.4) !important;
+            transform: scale(0.9) !important;
+        }
+        .ai-send-btn:disabled {
+            opacity: 0.4 !important;
+            cursor: not-allowed !important;
         }
     `);
 
@@ -638,9 +839,213 @@
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
+    // ========== AI HELPER FUNCTIONALITY ==========
+    let aiChatMessages = [];
+    let currentTextarea = null;
+    let suggestedText = '';
+    
+    function injectAIButton() {
+        const textarea = document.querySelector('textarea[data-testid="add-post-bodyText"]');
+        if (!textarea || document.getElementById('ai-helper-btn')) return;
+        
+        // Make textarea container position relative
+        const container = textarea.parentElement;
+        if (container) {
+            container.style.position = 'relative';
+        }
+        
+        // Create AI button
+        const aiBtn = document.createElement('div');
+        aiBtn.id = 'ai-helper-btn';
+        aiBtn.className = 'ai-helper-btn';
+        aiBtn.innerHTML = '🤖';
+        aiBtn.title = 'مساعد AI';
+        
+        // Create AI chat panel
+        const chatPanel = createAIChatPanel();
+        
+        // Insert button and panel
+        container.appendChild(aiBtn);
+        document.body.appendChild(chatPanel);
+        
+        // Button click handler
+        aiBtn.addEventListener('click', () => {
+            currentTextarea = textarea;
+            chatPanel.classList.toggle('show');
+            if (chatPanel.classList.contains('show')) {
+                addAIMessage('system', 'مرحباً! أنا هنا لمساعدتك في تحسين نص إعلانك. اكتب ما تريد تغييره أو تحسينه.');
+            }
+        });
+    }
+    
+    function createAIChatPanel() {
+        const panel = document.createElement('div');
+        panel.id = 'ai-chat-panel';
+        panel.innerHTML = `
+            <div class="ai-chat-header">
+                <h4>🤖 مساعد الذكاء الاصطناعي</h4>
+                <button class="ai-close-btn">×</button>
+            </div>
+            <div class="ai-chat-messages" id="ai-messages"></div>
+            <div class="ai-chat-input-area">
+                <div class="ai-input-wrapper">
+                    <input type="text" class="ai-chat-input" id="ai-input" placeholder="اكتب رسالتك هنا..." />
+                    <button class="ai-send-btn" id="ai-send-btn">📤</button>
+                </div>
+            </div>
+        `;
+        
+        // Close button handler
+        panel.querySelector('.ai-close-btn').addEventListener('click', () => {
+            panel.classList.remove('show');
+        });
+        
+        // Send button handler
+        const input = panel.querySelector('#ai-input');
+        const sendBtn = panel.querySelector('#ai-send-btn');
+        
+        sendBtn.addEventListener('click', () => sendAIMessage(input));
+        input.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendAIMessage(input);
+        });
+        
+        return panel;
+    }
+    
+    function addAIMessage(role, content, showPreview = false) {
+        const messagesContainer = document.getElementById('ai-messages');
+        if (!messagesContainer) return;
+        
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `ai-message ${role}`;
+        
+        if (showPreview && role === 'assistant') {
+            messageDiv.innerHTML = `
+                <div>${content}</div>
+                <div class="ai-preview-box">${suggestedText}</div>
+                <div class="ai-action-btns">
+                    <button class="ai-action-btn accept" onclick="window.acceptAIText()">✓ قبول التغييرات</button>
+                    <button class="ai-action-btn decline" onclick="window.declineAIText()">✗ رفض</button>
+                </div>
+            `;
+        } else {
+            messageDiv.textContent = content;
+        }
+        
+        messagesContainer.appendChild(messageDiv);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+    
+    async function sendAIMessage(input) {
+        const message = input.value.trim();
+        if (!message || !currentTextarea) return;
+        
+        const sendBtn = document.getElementById('ai-send-btn');
+        sendBtn.disabled = true;
+        
+        // Add user message
+        addAIMessage('user', message);
+        aiChatMessages.push({ role: 'user', content: message });
+        input.value = '';
+        
+        // Add loading message
+        addAIMessage('system', 'جاري التفكير...');
+        
+        try {
+            // Get current textarea content
+            const currentContent = currentTextarea.value;
+            
+            // Build context for AI
+            const systemPrompt = `أنت مساعد ذكي متخصص في تحسين إعلانات حراج. النص الحالي في الإعلان هو:\n"${currentContent}"\n\nساعد المستخدم في تحسين أو تعديل هذا النص حسب طلبه. قدم النص المحسّن كاملاً بدون شرح إضافي.`;
+            
+            const messages = [
+                { role: 'system', content: systemPrompt },
+                ...aiChatMessages
+            ];
+            
+            // Call OpenRouter API
+            const response = await fetch(OPENROUTER_CONFIG.apiUrl, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${OPENROUTER_CONFIG.apiKey}`,
+                    'Content-Type': 'application/json',
+                    'HTTP-Referer': window.location.href,
+                    'X-Title': 'Haraj Auto Updater AI Helper'
+                },
+                body: JSON.stringify({
+                    model: OPENROUTER_CONFIG.model,
+                    messages: messages,
+                    reasoning: { enabled: true }
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`API Error: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            const aiResponse = data.choices[0].message.content;
+            
+            // Remove loading message
+            const messagesContainer = document.getElementById('ai-messages');
+            if (messagesContainer.lastChild.classList.contains('system')) {
+                messagesContainer.removeChild(messagesContainer.lastChild);
+            }
+            
+            // Store suggested text
+            suggestedText = aiResponse;
+            
+            // Add AI response with preview
+            aiChatMessages.push({ role: 'assistant', content: aiResponse });
+            addAIMessage('assistant', 'إليك النص المحسّن:', true);
+            
+        } catch (error) {
+            console.error('AI Error:', error);
+            addAIMessage('system', 'عذراً، حدث خطأ في الاتصال بالذكاء الاصطناعي. حاول مرة أخرى.');
+        } finally {
+            sendBtn.disabled = false;
+        }
+    }
+    
+    // Global functions for accept/decline
+    window.acceptAIText = function() {
+        if (currentTextarea && suggestedText) {
+            currentTextarea.value = suggestedText;
+            // Trigger change event
+            currentTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+            currentTextarea.dispatchEvent(new Event('change', { bubbles: true }));
+            addAIMessage('system', '✓ تم تطبيق التغييرات بنجاح!');
+            suggestedText = '';
+        }
+    };
+    
+    window.declineAIText = function() {
+        addAIMessage('system', 'تم رفض التغييرات. يمكنك طلب تعديل آخر.');
+        suggestedText = '';
+    };
+    
+    // Watch for textarea to appear
+    function watchForTextarea() {
+        const observer = new MutationObserver(() => {
+            injectAIButton();
+        });
+        
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+        
+        // Try immediately
+        injectAIButton();
+    }
+
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', createMenu);
+        document.addEventListener('DOMContentLoaded', () => {
+            createMenu();
+            watchForTextarea();
+        });
     } else {
         createMenu();
+        watchForTextarea();
     }
 })();
