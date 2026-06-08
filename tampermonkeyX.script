@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Haraj Auto Updater - محدث حراج التلقائي
 // @namespace    http://tampermonkey.net/
-// @version      6.2.0
+// @version      6.3.0
 // @description  Auto update Haraj ads - تحديث إعلانات حراج تلقائياً
 // @author       You
 // @match        https://haraj.com.sa/*
@@ -17,7 +17,7 @@
 
 (function() {
     'use strict';
-    const VERSION = '6.0.0';
+    const VERSION = '6.3.0';
     
     // OpenRouter API Configuration (obfuscated key, no specific @connect needed)
     const OPENROUTER_CONFIG = {
@@ -27,8 +27,8 @@
     };
     
     const CONFIG = {
-        updateInterval: GM_getValue('updateInterval', 1000),
-        adsPerBatch: GM_getValue('adsPerBatch', 6),
+        updateInterval: localStorage.getItem('updateInterval') ? parseInt(localStorage.getItem('updateInterval')) : 1000,
+        adsPerBatch: localStorage.getItem('adsPerBatch') ? parseInt(localStorage.getItem('adsPerBatch')) : 6,
         token: null,
         clientId: null,
         graphqlEndpoint: 'https://graphql.haraj.com.sa/'
@@ -979,55 +979,48 @@
                 ...aiChatMessages
             ];
             
-            // Call OpenRouter API using GM_xmlhttpRequest (no @connect needed)
-            GM_xmlhttpRequest({
+            // Call OpenRouter API using fetch (works without Tampermonkey APIs)
+            fetch(OPENROUTER_CONFIG.apiUrl, {
                 method: 'POST',
-                url: OPENROUTER_CONFIG.apiUrl,
                 headers: {
                     'Authorization': `Bearer ${OPENROUTER_CONFIG.apiKey}`,
                     'Content-Type': 'application/json'
                 },
-                data: JSON.stringify({
+                body: JSON.stringify({
                     model: OPENROUTER_CONFIG.model,
                     messages: messages
-                }),
-                onload: function(response) {
-                    try {
-                        const data = JSON.parse(response.responseText);
-                        const messagesContainer = document.getElementById('ai-messages');
-                        
-                        if (messagesContainer && messagesContainer.lastChild && messagesContainer.lastChild.classList.contains('system')) {
-                            messagesContainer.removeChild(messagesContainer.lastChild);
-                        }
-                        
-                        if (response.status !== 200 || data.error) {
-                            const errorMsg = data.error?.message || 'خطأ غير معروف';
-                            console.error('API Error:', data);
-                            addAIMessage('system', `❌ خطأ: ${errorMsg}`);
-                            sendBtn.disabled = false;
-                            return;
-                        }
-                        
-                        const aiResponse = data.choices[0].message.content;
-                        suggestedText = aiResponse;
-                        aiChatMessages.push({ role: 'assistant', content: aiResponse });
-                        addAIMessage('assistant', 'إليك النص المحسّن:', true);
-                        sendBtn.disabled = false;
-                    } catch (error) {
-                        console.error('AI Parse Error:', error);
-                        addAIMessage('system', 'عذراً، حدث خطأ في معالجة الرد.');
-                        sendBtn.disabled = false;
-                    }
-                },
-                onerror: function(error) {
-                    console.error('AI Network Error:', error);
-                    const messagesContainer = document.getElementById('ai-messages');
-                    if (messagesContainer && messagesContainer.lastChild && messagesContainer.lastChild.classList.contains('system')) {
-                        messagesContainer.removeChild(messagesContainer.lastChild);
-                    }
-                    addAIMessage('system', 'عذراً، حدث خطأ في الاتصال.');
-                    sendBtn.disabled = false;
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                const messagesContainer = document.getElementById('ai-messages');
+                
+                if (messagesContainer && messagesContainer.lastChild && messagesContainer.lastChild.classList.contains('system')) {
+                    messagesContainer.removeChild(messagesContainer.lastChild);
                 }
+                
+                if (data.error) {
+                    const errorMsg = data.error.message || 'خطأ غير معروف';
+                    console.error('API Error:', data);
+                    addAIMessage('system', `❌ خطأ: ${errorMsg}`);
+                    sendBtn.disabled = false;
+                    return;
+                }
+                
+                const aiResponse = data.choices[0].message.content;
+                suggestedText = aiResponse;
+                aiChatMessages.push({ role: 'assistant', content: aiResponse });
+                addAIMessage('assistant', 'إليك النص المحسّن:', true);
+                sendBtn.disabled = false;
+            })
+            .catch(error => {
+                console.error('AI Error:', error);
+                const messagesContainer = document.getElementById('ai-messages');
+                if (messagesContainer && messagesContainer.lastChild && messagesContainer.lastChild.classList.contains('system')) {
+                    messagesContainer.removeChild(messagesContainer.lastChild);
+                }
+                addAIMessage('system', 'عذراً، حدث خطأ في الاتصال.');
+                sendBtn.disabled = false;
             });
             
         } catch (error) {
