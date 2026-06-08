@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Haraj Auto Updater - محدث حراج التلقائي
 // @namespace    http://tampermonkey.net/
-// @version      5.9.0
+// @version      5.8.0
 // @description  Auto update Haraj ads - تحديث إعلانات حراج تلقائياً
 // @author       You
 // @match        https://haraj.com.sa/*
@@ -11,6 +11,8 @@
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_addStyle
+// @grant        GM_xmlhttpRequest
+// @connect      openrouter.ai
 // @updateURL    https://raw.githubusercontent.com/mohammmedVDX/harajupdater/refs/heads/main/tampermonkey.script
 // @downloadURL  https://raw.githubusercontent.com/mohammmedVDX/harajupdater/refs/heads/main/tampermonkey.script
 // @connect      raw.githubusercontent.com
@@ -19,7 +21,7 @@
 
 (function() {
     'use strict';
-    const VERSION = '5.9.0';
+    const VERSION = '5.8.0';
     
     // OpenRouter API Configuration
     const OPENROUTER_CONFIG = {
@@ -963,46 +965,59 @@
                 ...aiChatMessages
             ];
             
-            // Call OpenRouter API
-            const response = await fetch(OPENROUTER_CONFIG.apiUrl, {
+            // Call OpenRouter API using GM_xmlhttpRequest
+            GM_xmlhttpRequest({
                 method: 'POST',
+                url: OPENROUTER_CONFIG.apiUrl,
                 headers: {
                     'Authorization': `Bearer ${OPENROUTER_CONFIG.apiKey}`,
                     'Content-Type': 'application/json',
-                    'HTTP-Referer': window.location.href,
-                    'X-Title': 'Haraj Auto Updater AI Helper'
+                    'HTTP-Referer': 'https://haraj.com.sa',
+                    'X-Title': 'Haraj Auto Updater AI'
                 },
-                body: JSON.stringify({
+                data: JSON.stringify({
                     model: OPENROUTER_CONFIG.model,
-                    messages: messages,
-                    reasoning: { enabled: true }
-                })
+                    messages: messages
+                }),
+                onload: function(response) {
+                    try {
+                        if (response.status !== 200) {
+                            throw new Error(`API Error: ${response.status} - ${response.responseText}`);
+                        }
+                        
+                        const data = JSON.parse(response.responseText);
+                        const aiResponse = data.choices[0].message.content;
+                        
+                        // Remove loading message
+                        const messagesContainer = document.getElementById('ai-messages');
+                        if (messagesContainer.lastChild.classList.contains('system')) {
+                            messagesContainer.removeChild(messagesContainer.lastChild);
+                        }
+                        
+                        // Store suggested text
+                        suggestedText = aiResponse;
+                        
+                        // Add AI response with preview
+                        aiChatMessages.push({ role: 'assistant', content: aiResponse });
+                        addAIMessage('assistant', 'إليك النص المحسّن:', true);
+                        
+                    } catch (error) {
+                        console.error('AI Parse Error:', error);
+                        addAIMessage('system', 'عذراً، حدث خطأ في معالجة الرد. حاول مرة أخرى.');
+                    } finally {
+                        sendBtn.disabled = false;
+                    }
+                },
+                onerror: function(error) {
+                    console.error('AI Network Error:', error);
+                    addAIMessage('system', 'عذراً، حدث خطأ في الاتصال بالذكاء الاصطناعي. تحقق من الاتصال بالإنترنت.');
+                    sendBtn.disabled = false;
+                }
             });
-            
-            if (!response.ok) {
-                throw new Error(`API Error: ${response.status}`);
-            }
-            
-            const data = await response.json();
-            const aiResponse = data.choices[0].message.content;
-            
-            // Remove loading message
-            const messagesContainer = document.getElementById('ai-messages');
-            if (messagesContainer.lastChild.classList.contains('system')) {
-                messagesContainer.removeChild(messagesContainer.lastChild);
-            }
-            
-            // Store suggested text
-            suggestedText = aiResponse;
-            
-            // Add AI response with preview
-            aiChatMessages.push({ role: 'assistant', content: aiResponse });
-            addAIMessage('assistant', 'إليك النص المحسّن:', true);
             
         } catch (error) {
             console.error('AI Error:', error);
-            addAIMessage('system', 'عذراً، حدث خطأ في الاتصال بالذكاء الاصطناعي. حاول مرة أخرى.');
-        } finally {
+            addAIMessage('system', 'عذراً، حدث خطأ غير متوقع. حاول مرة أخرى.');
             sendBtn.disabled = false;
         }
     }
