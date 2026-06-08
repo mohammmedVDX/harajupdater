@@ -1,0 +1,548 @@
+// ==UserScript==
+// @name         Haraj Auto Updater - محدث حراج التلقائي
+// @namespace    http://tampermonkey.net/
+// @version      5.3.0
+// @description  Auto update Haraj ads - تحديث إعلانات حراج تلقائياً
+// @author       You
+// @match        https://haraj.com.sa/*
+// @match        https://www.haraj.com.sa/*
+// @match        https://haraj.com/*
+// @match        https://www.haraj.com/*
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_addStyle
+// @updateURL    https://raw.githubusercontent.com/mohammmedVDX/harajupdater/refs/heads/main/tampermonkey.script
+// @downloadURL  https://raw.githubusercontent.com/mohammmedVDX/harajupdater/refs/heads/main/tampermonkey.script
+// @connect      raw.githubusercontent.com
+// @run-at       document-end
+// ==/UserScript==
+
+(function() {
+    'use strict';
+    const VERSION = '5.3.0';
+    
+    const CONFIG = {
+        updateInterval: GM_getValue('updateInterval', 1000),
+        adsPerBatch: GM_getValue('adsPerBatch', 6),
+        token: null,
+        clientId: null,
+        graphqlEndpoint: 'https://graphql.haraj.com.sa/'
+    };
+
+    let isRunning = false;
+    let currentIndex = 0;
+    let postIds = [];
+    let stats = { total: 0, updated: 0, failed: 0 };
+    let tokenExpiredCount = 0;
+
+    GM_addStyle(`
+        #haraj-menu {
+            position: fixed; top: 8px; right: 8px; width: 260px;
+            background: linear-gradient(145deg, #667eea 0%, #764ba2 100%);
+            border-radius: 10px; box-shadow: 0 8px 25px rgba(0,0,0,0.5); z-index: 999999;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: white;
+            direction: rtl; border: 2px solid rgba(255,255,255,0.15);
+            touch-action: none; user-select: none;
+        }
+        #haraj-header {
+            background: rgba(0,0,0,0.3); padding: 8px 10px; cursor: move;
+            display: flex; justify-content: space-between; align-items: center;
+            border-radius: 8px 8px 0 0; border-bottom: 2px solid rgba(255,255,255,0.1);
+            touch-action: none;
+        }
+        #haraj-header h3 {
+            margin: 0; font-size: 13px; font-weight: 700; letter-spacing: 0.3px;
+            display: flex; align-items: center; gap: 5px;
+        }
+        .version-badge {
+            font-size: 8px; background: rgba(16,185,129,0.3); padding: 2px 5px;
+            border-radius: 8px; font-weight: 600; border: 1px solid rgba(16,185,129,0.5);
+        }
+        #haraj-minimize {
+            background: rgba(255,255,255,0.2); border: none; color: white;
+            width: 26px; height: 26px; border-radius: 5px; cursor: pointer;
+            font-size: 16px; font-weight: bold; transition: all 0.2s;
+        }
+        #haraj-minimize:active { background: rgba(255,255,255,0.3); transform: scale(0.95); }
+        #haraj-content { padding: 12px; }
+        .speed-control {
+            display: flex; gap: 5px; margin-bottom: 10px;
+            background: rgba(0,0,0,0.25); padding: 6px; border-radius: 6px;
+            border: 1px solid rgba(255,255,255,0.15);
+        }
+        .speed-btn {
+            flex: 1; padding: 8px 4px; border: 1.5px solid rgba(255,255,255,0.25);
+            border-radius: 5px; background: rgba(255,255,255,0.12); color: white;
+            font-size: 10px; font-weight: 700; cursor: pointer; transition: all 0.2s;
+        }
+        .speed-btn:active {
+            background: rgba(255,255,255,0.25); transform: scale(0.95);
+        }
+        .speed-btn.active {
+            background: rgba(16,185,129,0.5); border-color: #10b981;
+            box-shadow: 0 0 10px rgba(16,185,129,0.4);
+        }
+        .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; }
+        .haraj-btn {
+            padding: 10px 6px; border: none; border-radius: 6px; font-size: 11px;
+            font-weight: 700; cursor: pointer; transition: all 0.2s;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+        .haraj-btn:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
+        .haraj-btn:active:not(:disabled) {
+            transform: scale(0.95); box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+        }
+        .btn-load { background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; }
+        .btn-start { background: linear-gradient(135deg, #10b981, #059669); color: white; }
+        .btn-like { background: linear-gradient(135deg, #f59e0b, #d97706); color: white; }
+        .btn-stop { background: linear-gradient(135deg, #ef4444, #dc2626); color: white; }
+        .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 10px 0; }
+        .stat {
+            background: rgba(255,255,255,0.15); padding: 8px 6px; border-radius: 6px;
+            text-align: center; font-size: 10px; border: 1px solid rgba(255,255,255,0.12);
+        }
+        .stat-value { font-size: 20px; font-weight: 800; display: block; margin-bottom: 2px; }
+        .stat-label { font-size: 9px; opacity: 0.9; font-weight: 600; }
+        .progress {
+            width: 100%; height: 8px; background: rgba(0,0,0,0.35); border-radius: 4px;
+            overflow: hidden; margin: 10px 0; border: 1px solid rgba(255,255,255,0.15);
+        }
+        .progress-bar {
+            height: 100%; background: linear-gradient(90deg, #10b981, #34d399, #10b981);
+            background-size: 200% 100%; transition: width 0.3s;
+            box-shadow: 0 0 10px rgba(16,185,129,0.6); animation: shimmer 2s infinite;
+        }
+        @keyframes shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+        .log {
+            background: rgba(0,0,0,0.4); border-radius: 6px; padding: 8px;
+            max-height: 140px; overflow-y: auto; font-size: 9px;
+            border: 1px solid rgba(255,255,255,0.15); font-family: 'Courier New', monospace;
+        }
+        .log::-webkit-scrollbar { width: 6px; }
+        .log::-webkit-scrollbar-track { background: rgba(0,0,0,0.3); border-radius: 3px; }
+        .log::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.4); border-radius: 3px; }
+        .log-entry {
+            padding: 5px 6px; margin-bottom: 3px; border-radius: 4px;
+            border-left: 3px solid transparent; line-height: 1.4;
+        }
+        .log-success { background: rgba(16,185,129,0.2); border-left-color: #10b981; }
+        .log-error { background: rgba(239,68,68,0.2); border-left-color: #ef4444; }
+        .log-info { background: rgba(59,130,246,0.2); border-left-color: #3b82f6; }
+        .log-warning { background: rgba(245,158,11,0.2); border-left-color: #f59e0b; }
+        .log-time { opacity: 0.7; font-size: 8px; margin-left: 5px; }
+        .token-warning {
+            background: rgba(239,68,68,0.25); border: 2px solid #ef4444; border-radius: 6px;
+            padding: 8px; margin-bottom: 10px; text-align: center;
+            font-size: 10px; font-weight: 700; display: none;
+        }
+        .token-warning.show { display: block; animation: pulse 2s infinite; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.8; transform: scale(1.01); }
+        }
+        .btn-relogin {
+            background: linear-gradient(135deg, #ef4444, #dc2626); color: white;
+            width: 100%; padding: 9px; border: none; border-radius: 6px;
+            font-size: 11px; font-weight: 700; cursor: pointer; margin-bottom: 10px;
+            display: none; box-shadow: 0 3px 10px rgba(239,68,68,0.4);
+        }
+        .btn-relogin.show { display: block; }
+        .btn-relogin:active {
+            transform: scale(0.95); box-shadow: 0 2px 6px rgba(239,68,68,0.5);
+        }
+        .minimized #haraj-content { display: none; }
+        
+        @media (max-width: 480px) {
+            #haraj-menu { width: calc(100vw - 16px); right: 8px; left: 8px; }
+        }
+    `);
+
+    function createMenu() {
+        const menu = document.createElement('div');
+        menu.id = 'haraj-menu';
+        menu.innerHTML = `
+            <div id="haraj-header">
+                <h3>🔄 محدث حراج <span class="version-badge">v${VERSION}</span></h3>
+                <button id="haraj-minimize">−</button>
+            </div>
+            <div id="haraj-content">
+                <div class="token-warning" id="token-warning">⚠️ انتهت الجلسة - مشكلة من السيرفر</div>
+                <button class="btn-relogin" id="relogin-btn">🔄 إعادة تسجيل الدخول</button>
+                <div class="speed-control">
+                    <button class="speed-btn" data-speed="3">3 دفعة</button>
+                    <button class="speed-btn active" data-speed="6">6 دفعة</button>
+                    <button class="speed-btn" data-speed="12">12 دفعة</button>
+                </div>
+                <div class="btn-grid">
+                    <button class="haraj-btn btn-load" id="load-btn">📋 تحميل</button>
+                    <button class="haraj-btn btn-start" id="start-btn" disabled>▶️ تحديث</button>
+                    <button class="haraj-btn btn-like" id="like-btn" disabled>❤️ تفضيل</button>
+                    <button class="haraj-btn btn-stop" id="stop-btn" disabled>⏸️ إيقاف</button>
+                </div>
+                <div class="stats">
+                    <div class="stat"><span class="stat-value" id="stat-total">0</span><span class="stat-label">إجمالي</span></div>
+                    <div class="stat"><span class="stat-value" id="stat-updated">0</span><span class="stat-label">محدث</span></div>
+                    <div class="stat"><span class="stat-value" id="stat-failed">0</span><span class="stat-label">فشل</span></div>
+                    <div class="stat"><span class="stat-value" id="stat-remaining">0</span><span class="stat-label">متبقي</span></div>
+                </div>
+                <div class="progress"><div class="progress-bar" id="progress"></div></div>
+                <div class="log" id="log"></div>
+            </div>
+        `;
+        document.body.appendChild(menu);
+        
+        makeDraggable(menu);
+        
+        document.getElementById('haraj-minimize').onclick = () => {
+            menu.classList.toggle('minimized');
+            document.getElementById('haraj-minimize').textContent = menu.classList.contains('minimized') ? '+' : '−';
+        };
+        
+        document.getElementById('relogin-btn').onclick = () => window.location.href = 'https://haraj.com.sa/login';
+        
+        document.querySelectorAll('.speed-btn').forEach(btn => {
+            btn.onclick = () => {
+                const speed = parseInt(btn.getAttribute('data-speed'));
+                CONFIG.adsPerBatch = speed;
+                GM_setValue('adsPerBatch', speed);
+                document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                addLog('info', `⚡ السرعة: ${speed} لكل دفعة`);
+            };
+        });
+        
+        document.getElementById('load-btn').onclick = loadPosts;
+        document.getElementById('start-btn').onclick = startUpdating;
+        document.getElementById('like-btn').onclick = likeAll;
+        document.getElementById('stop-btn').onclick = stop;
+        
+        addLog('info', `🚀 محدث حراج v${VERSION} جاهز!`);
+    }
+
+    function makeDraggable(el) {
+        const header = el.querySelector('#haraj-header');
+        let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+        
+        // Mouse events
+        header.onmousedown = dragStart;
+        
+        // Touch events for mobile
+        header.addEventListener('touchstart', function(e) {
+            const touch = e.touches[0];
+            pos3 = touch.clientX;
+            pos4 = touch.clientY;
+            document.addEventListener('touchmove', dragMove);
+            document.addEventListener('touchend', dragEnd);
+        }, { passive: false });
+        
+        function dragStart(e) {
+            e.preventDefault();
+            pos3 = e.clientX;
+            pos4 = e.clientY;
+            document.onmouseup = dragEnd;
+            document.onmousemove = dragMove;
+        }
+        
+        function dragMove(e) {
+            e.preventDefault();
+            let clientX, clientY;
+            
+            if (e.type === 'touchmove') {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+            } else {
+                clientX = e.clientX;
+                clientY = e.clientY;
+            }
+            
+            pos1 = pos3 - clientX;
+            pos2 = pos4 - clientY;
+            pos3 = clientX;
+            pos4 = clientY;
+            
+            let newTop = el.offsetTop - pos2;
+            let newLeft = el.offsetLeft - pos1;
+            
+            // Keep within viewport
+            newTop = Math.max(0, Math.min(newTop, window.innerHeight - el.offsetHeight));
+            newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - el.offsetWidth));
+            
+            el.style.top = newTop + "px";
+            el.style.right = "auto";
+            el.style.left = newLeft + "px";
+        }
+        
+        function dragEnd() {
+            document.onmouseup = null;
+            document.onmousemove = null;
+            document.removeEventListener('touchmove', dragMove);
+            document.removeEventListener('touchend', dragEnd);
+        }
+    }
+
+    function extractToken() {
+        const cookieString = document.cookie;
+        
+        // Extract CLIENT_ID from localStorage meta
+        try {
+            const meta = localStorage.getItem('meta');
+            if (meta) {
+                const parsed = JSON.parse(meta);
+                if (parsed.state?.clientId) {
+                    CONFIG.clientId = parsed.state.clientId;
+                    addLog('info', `✓ CLIENT_ID: ${CONFIG.clientId.substring(0, 15)}...`);
+                }
+            }
+        } catch (e) {
+            console.error('Failed to extract clientId from meta:', e);
+        }
+        
+        // Fallback to default if not found
+        if (!CONFIG.clientId) {
+            CONFIG.clientId = '0hxR2sjN-VMMr-QtoI-Sydi-xHqrb6O2M0T8v3';
+            addLog('warning', '⚠ استخدام CLIENT_ID الافتراضي');
+        }
+        
+        // Extract accessToken from cookies
+        const accessTokenMatch = cookieString.match(/accessToken=([^;]+)/);
+        if (accessTokenMatch) {
+            const token = decodeURIComponent(accessTokenMatch[1]);
+            const parts = token.split('.');
+            if (parts.length === 3) {
+                CONFIG.token = token;
+                addLog('success', '✓ تم استخراج التوكن');
+                return true;
+            }
+        }
+        
+        addLog('error', '✗ فشل استخراج التوكن');
+        return false;
+    }
+
+    async function loadPosts() {
+        addLog('info', 'جاري تحميل الإعلانات...');
+        document.getElementById('load-btn').disabled = true;
+        
+        let previousCount = 0;
+        for (let i = 0; i < 50; i++) {
+            window.scrollTo(0, document.body.scrollHeight);
+            await sleep(1000);
+            const loadMoreBtn = document.querySelector('[data-testid="posts-load-more"]');
+            if (loadMoreBtn && !loadMoreBtn.disabled) loadMoreBtn.click();
+            const currentCount = document.querySelectorAll('[data-test-postid]').length;
+            if (currentCount === previousCount) break;
+            previousCount = currentCount;
+        }
+        
+        window.scrollTo(0, 0);
+        collectPosts();
+        document.getElementById('load-btn').disabled = false;
+    }
+
+    function collectPosts() {
+        postIds = [];
+        document.querySelectorAll('[data-test-postid]').forEach(el => {
+            const id = el.getAttribute('data-test-postid');
+            if (id) postIds.push(parseInt(id));
+        });
+        
+        stats = { total: postIds.length, updated: 0, failed: 0 };
+        currentIndex = 0;
+        updateStats();
+        
+        if (postIds.length > 0) {
+            addLog('success', `تم تحميل ${postIds.length} إعلان`);
+            document.getElementById('start-btn').disabled = false;
+            document.getElementById('like-btn').disabled = false;
+        } else {
+            addLog('error', 'لم يتم العثور على إعلانات');
+        }
+    }
+
+    async function startUpdating() {
+        if (!extractToken()) {
+            addLog('error', 'فشل استخراج التوكن');
+            return;
+        }
+        
+        hideTokenWarning();
+        isRunning = true;
+        document.getElementById('start-btn').disabled = true;
+        document.getElementById('stop-btn').disabled = false;
+        document.getElementById('load-btn').disabled = true;
+        document.getElementById('like-btn').disabled = true;
+        addLog('info', 'بدء التحديث...');
+        await updateBatch();
+    }
+
+    async function updateBatch() {
+        if (!isRunning || currentIndex >= postIds.length) {
+            if (currentIndex >= postIds.length) {
+                addLog('success', '✅ اكتمل التحديث!');
+                stop();
+            }
+            return;
+        }
+
+        const batch = postIds.slice(currentIndex, currentIndex + CONFIG.adsPerBatch);
+        for (let id of batch) {
+            if (!isRunning) break;
+            await updatePost(id);
+        }
+
+        currentIndex += CONFIG.adsPerBatch;
+        updateStats();
+
+        if (isRunning && currentIndex < postIds.length) {
+            setTimeout(() => updateBatch(), CONFIG.updateInterval);
+        } else if (currentIndex >= postIds.length) {
+            addLog('success', '✅ اكتمل التحديث!');
+            stop();
+        }
+    }
+
+    async function updatePost(id) {
+        try {
+            const lang = document.documentElement.lang || 'ar';
+            const url = `${CONFIG.graphqlEndpoint}?queryName=updatePost&lang=${lang}&clientId=${CONFIG.clientId}&version=N0.0.1`;
+            
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': '*/*',
+                    'Origin': 'https://haraj.com.sa',
+                    'Referer': 'https://haraj.com.sa/'
+                },
+                credentials: 'include',
+                body: JSON.stringify({
+                    query: `mutation updatePost($token: String!, $id: Int!) {\n updatePost(token: $token, id: $id) {\n status\n notValidReason\n }\n}`,
+                    variables: { token: CONFIG.token, id: id }
+                })
+            });
+
+            const data = await response.json();
+            
+            if (data.data?.updatePost?.status === true) {
+                stats.updated++;
+                addLog('success', `✓ #${id}`);
+                tokenExpiredCount = 0;
+            } else {
+                stats.failed++;
+                const reason = data.data?.updatePost?.notValidReason || 'فشل';
+                
+                if (reason === 'لم يتم تسجيل الدخول') {
+                    tokenExpiredCount++;
+                    addLog('error', `✗ #${id}: جلسة منتهية (${tokenExpiredCount}/3)`);
+                    if (tokenExpiredCount >= 3) {
+                        addLog('error', '🛑 مشكلة سيرفر - الجلسة منتهية');
+                        addLog('info', '💡 إعادة الدخول قد تحل المشكلة مؤقتاً');
+                        showTokenWarning();
+                        stop();
+                    }
+                } else {
+                    addLog('error', `✗ #${id}: ${reason}`);
+                }
+            }
+        } catch (error) {
+            stats.failed++;
+            addLog('error', `✗ #${id}`);
+        }
+    }
+    
+    function showTokenWarning() {
+        document.getElementById('token-warning').classList.add('show');
+        document.getElementById('relogin-btn').classList.add('show');
+    }
+    
+    function hideTokenWarning() {
+        document.getElementById('token-warning').classList.remove('show');
+        document.getElementById('relogin-btn').classList.remove('show');
+        tokenExpiredCount = 0;
+    }
+
+    async function likeAll() {
+        if (!extractToken()) {
+            addLog('error', 'فشل استخراج التوكن');
+            return;
+        }
+        
+        isRunning = true;
+        document.getElementById('like-btn').disabled = true;
+        document.getElementById('start-btn').disabled = true;
+        document.getElementById('stop-btn').disabled = false;
+        addLog('info', 'بدء التفضيل...');
+        
+        for (let i = 0; i < postIds.length; i++) {
+            if (!isRunning) break;
+            await likePost(postIds[i]);
+            updateStats();
+            await sleep(CONFIG.updateInterval);
+        }
+        
+        addLog('success', '✅ اكتمل التفضيل!');
+        stop();
+    }
+
+    async function likePost(id) {
+        try {
+            const response = await fetch(CONFIG.graphqlEndpoint + `?queryName=submitLike&clientId=${CONFIG.clientId}&version=N0.0.1`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                    query: `mutation { submitLike(token: "${CONFIG.token}", id: ${id}) }`,
+                })
+            });
+            
+            const data = await response.json();
+            if (data.data?.submitLike) {
+                stats.updated++;
+                addLog('success', `❤️ #${id}`);
+            }
+        } catch (error) {
+            stats.failed++;
+        }
+    }
+
+    function stop() {
+        isRunning = false;
+        document.getElementById('start-btn').disabled = false;
+        document.getElementById('stop-btn').disabled = true;
+        document.getElementById('load-btn').disabled = false;
+        document.getElementById('like-btn').disabled = false;
+    }
+
+    function updateStats() {
+        document.getElementById('stat-total').textContent = stats.total;
+        document.getElementById('stat-updated').textContent = stats.updated;
+        document.getElementById('stat-failed').textContent = stats.failed;
+        document.getElementById('stat-remaining').textContent = Math.max(0, stats.total - currentIndex);
+        const progress = stats.total > 0 ? (currentIndex / stats.total) * 100 : 0;
+        document.getElementById('progress').style.width = progress + '%';
+    }
+
+    function addLog(type, msg) {
+        const log = document.getElementById('log');
+        if (!log) return;
+        const entry = document.createElement('div');
+        entry.className = `log-entry log-${type}`;
+        const time = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        entry.innerHTML = `<span class="log-time">${time}</span> ${msg}`;
+        log.insertBefore(entry, log.firstChild);
+        while (log.children.length > 100) log.removeChild(log.lastChild);
+    }
+
+    function sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', createMenu);
+    } else {
+        createMenu();
+    }
+})();
