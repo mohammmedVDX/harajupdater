@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Haraj Auto Updater - محدث حراج التلقائي
 // @namespace    http://tampermonkey.net/
-// @version      5.3.0
+// @version      5.6.0
 // @description  Auto update Haraj ads - تحديث إعلانات حراج تلقائياً
 // @author       You
 // @match        https://haraj.com.sa/*
@@ -19,7 +19,7 @@
 
 (function() {
     'use strict';
-    const VERSION = '5.3.0';
+    const VERSION = '5.6.0';
     
     const CONFIG = {
         updateInterval: GM_getValue('updateInterval', 1000),
@@ -43,6 +43,13 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important; color: white !important;
             direction: rtl !important; border: 2px solid rgba(255,255,255,0.15) !important;
             touch-action: none !important; user-select: none !important;
+            transition: opacity 0.3s ease, transform 0.3s ease !important;
+            -webkit-tap-highlight-color: transparent !important;
+        }
+        #haraj-menu.minimized {
+            opacity: 0 !important;
+            transform: scale(0.8) !important;
+            pointer-events: none !important;
         }
         #haraj-header {
             background: rgba(0,0,0,0.3) !important; padding: 6px 8px !important; cursor: move !important;
@@ -60,12 +67,32 @@
             border-radius: 6px !important; font-weight: 600 !important; border: 1px solid rgba(16,185,129,0.5) !important;
             color: white !important;
         }
-        #haraj-minimize {
-            background: rgba(255,255,255,0.2) !important; border: none !important; color: white !important;
-            width: 20px !important; height: 20px !important; border-radius: 4px !important; cursor: pointer !important;
-            font-size: 14px !important; font-weight: bold !important; transition: all 0.2s !important;
+        #haraj-toggle-btn {
+            position: fixed !important; top: 8px !important; right: 8px !important;
+            width: 50px !important; height: 50px !important;
+            background: linear-gradient(145deg, #667eea 0%, #764ba2 100%) !important;
+            border: 3px solid rgba(255,255,255,0.4) !important;
+            border-radius: 50% !important;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.6) !important;
+            cursor: move !important;
+            z-index: 999998 !important;
+            display: none !important;
+            align-items: center !important;
+            justify-content: center !important;
+            font-size: 24px !important;
+            color: white !important;
+            touch-action: none !important;
+            user-select: none !important;
+            transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+            -webkit-tap-highlight-color: transparent !important;
         }
-        #haraj-minimize:active { background: rgba(255,255,255,0.3) !important; transform: scale(0.95) !important; }
+        #haraj-toggle-btn.show {
+            display: flex !important;
+        }
+        #haraj-toggle-btn:active {
+            transform: scale(0.85) !important;
+            box-shadow: 0 3px 15px rgba(0,0,0,0.7) !important;
+        }
         #haraj-content { padding: 8px !important; }
         .speed-control {
             display: flex !important; gap: 4px !important; margin-bottom: 8px !important;
@@ -77,9 +104,10 @@
             border-radius: 4px !important; background: rgba(255,255,255,0.12) !important; color: white !important;
             font-size: 8px !important; font-weight: 700 !important; cursor: pointer !important; 
             transition: all 0.2s !important;
+            -webkit-tap-highlight-color: transparent !important;
         }
         .speed-btn:active {
-            background: rgba(255,255,255,0.25) !important; transform: scale(0.95) !important;
+            background: rgba(255,255,255,0.25) !important; transform: scale(0.9) !important;
         }
         .speed-btn.active {
             background: rgba(16,185,129,0.5) !important; border-color: #10b981 !important;
@@ -91,10 +119,11 @@
             font-size: 9px !important; font-weight: 700 !important; cursor: pointer !important; 
             transition: all 0.2s !important; box-shadow: 0 2px 6px rgba(0,0,0,0.3) !important;
             color: white !important;
+            -webkit-tap-highlight-color: transparent !important;
         }
         .haraj-btn:disabled { opacity: 0.4 !important; cursor: not-allowed !important; box-shadow: none !important; }
         .haraj-btn:active:not(:disabled) {
-            transform: scale(0.95) !important; box-shadow: 0 1px 3px rgba(0,0,0,0.4) !important;
+            transform: scale(0.9) !important; box-shadow: 0 1px 3px rgba(0,0,0,0.4) !important;
         }
         .btn-load { background: linear-gradient(135deg, #3b82f6, #2563eb) !important; }
         .btn-start { background: linear-gradient(135deg, #10b981, #059669) !important; }
@@ -154,21 +183,31 @@
             width: 100% !important; padding: 7px !important; border: none !important; border-radius: 5px !important;
             font-size: 9px !important; font-weight: 700 !important; cursor: pointer !important; margin-bottom: 8px !important;
             display: none !important; box-shadow: 0 2px 8px rgba(239,68,68,0.4) !important;
+            -webkit-tap-highlight-color: transparent !important;
         }
         .btn-relogin.show { display: block !important; }
         .btn-relogin:active {
-            transform: scale(0.95) !important; box-shadow: 0 1px 4px rgba(239,68,68,0.5) !important;
+            transform: scale(0.9) !important; box-shadow: 0 1px 4px rgba(239,68,68,0.5) !important;
         }
-        .minimized #haraj-content { display: none !important; }
+        #haraj-content { 
+            opacity: 1 !important;
+            transition: opacity 0.3s ease !important;
+        }
     `);
 
     function createMenu() {
+        // Create toggle button
+        const toggleBtn = document.createElement('div');
+        toggleBtn.id = 'haraj-toggle-btn';
+        toggleBtn.innerHTML = '🔄';
+        document.body.appendChild(toggleBtn);
+        
+        // Create menu
         const menu = document.createElement('div');
         menu.id = 'haraj-menu';
         menu.innerHTML = `
             <div id="haraj-header">
                 <h3>🔄 محدث حراج <span class="version-badge">v${VERSION}</span></h3>
-                <button id="haraj-minimize">−</button>
             </div>
             <div id="haraj-content">
                 <div class="token-warning" id="token-warning">⚠️ انتهت الجلسة - مشكلة من السيرفر</div>
@@ -196,12 +235,47 @@
         `;
         document.body.appendChild(menu);
         
-        makeDraggable(menu);
+        // Make both menu and toggle button draggable
+        makeDraggable(menu, menu.querySelector('#haraj-header'));
+        makeDraggable(toggleBtn, toggleBtn);
         
-        document.getElementById('haraj-minimize').onclick = () => {
-            menu.classList.toggle('minimized');
-            document.getElementById('haraj-minimize').textContent = menu.classList.contains('minimized') ? '+' : '−';
-        };
+        // Toggle button click handler
+        let clickTimer = null;
+        let isDragging = false;
+        
+        toggleBtn.addEventListener('mousedown', () => { isDragging = false; });
+        toggleBtn.addEventListener('mousemove', () => { isDragging = true; });
+        toggleBtn.addEventListener('touchmove', () => { isDragging = true; });
+        
+        toggleBtn.addEventListener('click', (e) => {
+            if (!isDragging) {
+                menu.classList.toggle('minimized');
+                toggleBtn.classList.toggle('show');
+                
+                if (!menu.classList.contains('minimized')) {
+                    // Sync positions when showing menu
+                    menu.style.top = toggleBtn.style.top || '8px';
+                    menu.style.left = toggleBtn.style.left || 'auto';
+                    menu.style.right = toggleBtn.style.right || '8px';
+                }
+            }
+            isDragging = false;
+        });
+        
+        // Double click on header to minimize
+        let lastClickTime = 0;
+        menu.querySelector('#haraj-header').addEventListener('click', (e) => {
+            const currentTime = new Date().getTime();
+            if (currentTime - lastClickTime < 300) {
+                menu.classList.add('minimized');
+                toggleBtn.classList.add('show');
+                // Sync positions
+                toggleBtn.style.top = menu.style.top;
+                toggleBtn.style.left = menu.style.left;
+                toggleBtn.style.right = menu.style.right;
+            }
+            lastClickTime = currentTime;
+        });
         
         document.getElementById('relogin-btn').onclick = () => window.location.href = 'https://haraj.com.sa/login';
         
@@ -224,19 +298,21 @@
         addLog('info', `🚀 محدث حراج v${VERSION} جاهز!`);
     }
 
-    function makeDraggable(el) {
-        const header = el.querySelector('#haraj-header');
+    function makeDraggable(el, dragHandle) {
+        const handle = dragHandle || el;
         let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+        let hasMoved = false;
         
         // Mouse events
-        header.onmousedown = dragStart;
+        handle.addEventListener('mousedown', dragStart);
         
         // Touch events for mobile
-        header.addEventListener('touchstart', function(e) {
+        handle.addEventListener('touchstart', function(e) {
             const touch = e.touches[0];
             pos3 = touch.clientX;
             pos4 = touch.clientY;
-            document.addEventListener('touchmove', dragMove);
+            hasMoved = false;
+            document.addEventListener('touchmove', dragMove, { passive: false });
             document.addEventListener('touchend', dragEnd);
         }, { passive: false });
         
@@ -244,12 +320,15 @@
             e.preventDefault();
             pos3 = e.clientX;
             pos4 = e.clientY;
-            document.onmouseup = dragEnd;
-            document.onmousemove = dragMove;
+            hasMoved = false;
+            document.addEventListener('mouseup', dragEnd);
+            document.addEventListener('mousemove', dragMove);
         }
         
         function dragMove(e) {
             e.preventDefault();
+            hasMoved = true;
+            
             let clientX, clientY;
             
             if (e.type === 'touchmove') {
@@ -278,8 +357,8 @@
         }
         
         function dragEnd() {
-            document.onmouseup = null;
-            document.onmousemove = null;
+            document.removeEventListener('mouseup', dragEnd);
+            document.removeEventListener('mousemove', dragMove);
             document.removeEventListener('touchmove', dragMove);
             document.removeEventListener('touchend', dragEnd);
         }
