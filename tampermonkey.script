@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Haraj Auto Updater - محدث حراج التلقائي
 // @namespace    http://tampermonkey.net/
-// @version      6.2.5
+// @version      6.5.0
 // @description  Auto update Haraj ads - تحديث إعلانات حراج تلقائياً
 // @author       You
 // @match        https://haraj.com.sa/*
@@ -18,7 +18,7 @@
 (function() {
     'use strict';
 
-    const VERSION = '6.2.5';
+    const VERSION = '6.5.0';
     
     // OpenRouter API Configuration (obfuscated key, no specific @connect needed)
     const OPENROUTER_CONFIG = {
@@ -88,6 +88,7 @@
             box-shadow: 0 0 15px rgba(16,185,129,0.4);
         }
         .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+        .btn-grid-full { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 14px; }
         .haraj-btn {
             padding: 13px; border: none; border-radius: 8px; font-size: 13px;
             font-weight: 700; cursor: pointer; transition: all 0.3s;
@@ -376,9 +377,10 @@
                     <button class="speed-btn active" data-speed="6">6 دفعة</button>
                     <button class="speed-btn" data-speed="12">12 دفعة</button>
                 </div>
+                <div class="btn-grid-full">
+                    <button class="haraj-btn btn-start" id="update-btn">▶️ تحديث</button>
+                </div>
                 <div class="btn-grid">
-                    <button class="haraj-btn btn-load" id="load-btn">📋 تحميل</button>
-                    <button class="haraj-btn btn-start" id="start-btn" disabled>▶️ تحديث</button>
                     <button class="haraj-btn btn-like" id="like-btn" disabled>❤️ تفضيل</button>
                     <button class="haraj-btn btn-stop" id="stop-btn" disabled>⏸️ إيقاف</button>
                 </div>
@@ -414,8 +416,7 @@
             };
         });
         
-        document.getElementById('load-btn').onclick = loadPosts;
-        document.getElementById('start-btn').onclick = startUpdating;
+        document.getElementById('update-btn').onclick = loadAndUpdate;
         document.getElementById('like-btn').onclick = likeAll;
         document.getElementById('stop-btn').onclick = stop;
         
@@ -484,7 +485,7 @@
 
     async function loadPosts() {
         addLog('info', 'جاري تحميل الإعلانات...');
-        document.getElementById('load-btn').disabled = true;
+        document.getElementById('update-btn').disabled = true;
         
         let previousCount = 0;
         for (let i = 0; i < 50; i++) {
@@ -499,7 +500,14 @@
         
         window.scrollTo(0, 0);
         collectPosts();
-        document.getElementById('load-btn').disabled = false;
+        document.getElementById('update-btn').disabled = false;
+    }
+    
+    async function loadAndUpdate() {
+        await loadPosts();
+        if (postIds.length > 0) {
+            await startUpdating();
+        }
     }
 
     function collectPosts() {
@@ -515,7 +523,6 @@
         
         if (postIds.length > 0) {
             addLog('success', `تم تحميل ${postIds.length} إعلان`);
-            document.getElementById('start-btn').disabled = false;
             document.getElementById('like-btn').disabled = false;
         } else {
             addLog('error', 'لم يتم العثور على إعلانات');
@@ -530,9 +537,8 @@
         
         hideTokenWarning();
         isRunning = true;
-        document.getElementById('start-btn').disabled = true;
+        document.getElementById('update-btn').disabled = true;
         document.getElementById('stop-btn').disabled = false;
-        document.getElementById('load-btn').disabled = true;
         document.getElementById('like-btn').disabled = true;
         addLog('info', 'بدء التحديث...');
         await updateBatch();
@@ -632,7 +638,7 @@
         
         isRunning = true;
         document.getElementById('like-btn').disabled = true;
-        document.getElementById('start-btn').disabled = true;
+        document.getElementById('update-btn').disabled = true;
         document.getElementById('stop-btn').disabled = false;
         addLog('info', 'بدء التفضيل...');
         
@@ -670,9 +676,8 @@
 
     function stop() {
         isRunning = false;
-        document.getElementById('start-btn').disabled = false;
+        document.getElementById('update-btn').disabled = false;
         document.getElementById('stop-btn').disabled = true;
-        document.getElementById('load-btn').disabled = false;
         document.getElementById('like-btn').disabled = false;
     }
 
