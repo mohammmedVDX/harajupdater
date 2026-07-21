@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Haraj Auto Updater - محدث حراج التلقائي
 // @namespace    http://tampermonkey.net/
-// @version      6.5.2
+// @version      6.4.2
 // @description  Auto update Haraj ads - تحديث إعلانات حراج تلقائياً
 // @author       You
 // @match        https://haraj.com.sa/*
@@ -17,7 +17,7 @@
 
 (function() {
     'use strict';
-    const VERSION = '6.5.2';
+    const VERSION = '6.4.2';
     
     // OpenRouter API Configuration (obfuscated key, no specific @connect needed)
     const OPENROUTER_CONFIG = {
@@ -463,8 +463,8 @@
         `;
         document.body.appendChild(menu);
         
-        // Make menu draggable by header
-        makeDraggable(menu, menu.querySelector('#haraj-header'));
+        // Make menu draggable from anywhere on it (buttons, inputs, and the log stay tappable/scrollable)
+        makeDraggable(menu, menu);
         
         // Make toggle button draggable
         makeDraggable(toggleBtn, toggleBtn);
@@ -508,6 +508,13 @@
         addLog('info', `🚀 محدث حراج v${VERSION} جاهز!`);
     }
 
+    function shouldIgnoreDragTarget(target) {
+        if (!target) return false;
+        if (target.tagName === 'BUTTON' || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return true;
+        if (target.closest && target.closest('.log')) return true;
+        return false;
+    }
+
     function makeDraggable(el, dragHandle) {
         const handle = dragHandle || el;
         let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
@@ -515,8 +522,8 @@
         
         // Touch events for mobile
         handle.addEventListener('touchstart', function(e) {
-            // Don't drag if clicking on a button
-            if (e.target.tagName === 'BUTTON') return;
+            // Don't drag if touching a button, input, or the scrollable log
+            if (shouldIgnoreDragTarget(e.target)) return;
             
             const touch = e.touches[0];
             pos3 = touch.clientX;
@@ -525,8 +532,8 @@
         }, { passive: true });
         
         handle.addEventListener('touchmove', function(e) {
-            // Don't drag if clicking on a button
-            if (e.target.tagName === 'BUTTON') return;
+            // Don't drag if touching a button, input, or the scrollable log
+            if (shouldIgnoreDragTarget(e.target)) return;
             
             e.preventDefault();
             isDragging = true;
@@ -555,8 +562,8 @@
         
         // Mouse events for desktop
         handle.addEventListener('mousedown', function(e) {
-            // Don't drag if clicking on a button
-            if (e.target.tagName === 'BUTTON') return;
+            // Don't drag if clicking a button, input, or the scrollable log
+            if (shouldIgnoreDragTarget(e.target)) return;
             
             e.preventDefault();
             pos3 = e.clientX;
@@ -595,7 +602,23 @@
     }
 
     function extractToken() {
-        const cookieString = document.cookie;
+        // Primary source: accessToken lives inside localStorage 'statlogin' now
+        try {
+            const statlogin = localStorage.getItem('statlogin');
+            if (statlogin) {
+                const parsed = JSON.parse(statlogin);
+                const token = parsed?.state?.accessToken;
+                if (token) {
+                    const parts = token.split('.');
+                    if (parts.length === 3) {
+                        CONFIG.token = token;
+                        addLog('success', '✓ تم استخراج التوكن من الجلسة');
+                    }
+                }
+            }
+        } catch (e) {
+            console.error('Failed to extract accessToken from statlogin:', e);
+        }
         
         // Extract CLIENT_ID from localStorage meta
         try {
@@ -617,20 +640,26 @@
             addLog('warning', '⚠ استخدام CLIENT_ID الافتراضي');
         }
         
-        // Extract accessToken from cookies
-        const accessTokenMatch = cookieString.match(/accessToken=([^;]+)/);
-        if (accessTokenMatch) {
-            const token = decodeURIComponent(accessTokenMatch[1]);
-            const parts = token.split('.');
-            if (parts.length === 3) {
-                CONFIG.token = token;
-                addLog('success', '✓ تم استخراج التوكن');
-                return true;
+        // Fallback: only check the cookie if statlogin didn't give us a token
+        if (!CONFIG.token) {
+            const cookieString = document.cookie;
+            const accessTokenMatch = cookieString.match(/accessToken=([^;]+)/);
+            if (accessTokenMatch) {
+                const token = decodeURIComponent(accessTokenMatch[1]);
+                const parts = token.split('.');
+                if (parts.length === 3) {
+                    CONFIG.token = token;
+                    addLog('success', '✓ تم استخراج التوكن من الكوكيز');
+                }
             }
         }
         
-        addLog('error', '✗ فشل استخراج التوكن');
-        return false;
+        if (!CONFIG.token) {
+            addLog('error', '✗ فشل استخراج التوكن');
+            return false;
+        }
+        
+        return true;
     }
 
     function getMyUsername() {
