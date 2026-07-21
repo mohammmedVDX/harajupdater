@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Haraj Auto Updater - محدث حراج التلقائي
 // @namespace    http://tampermonkey.net/
-// @version      6.4.2
+// @version      6.6.2
 // @description  Auto update Haraj ads - تحديث إعلانات حراج تلقائياً
 // @author       You
 // @match        https://haraj.com.sa/*
@@ -17,7 +17,7 @@
 
 (function() {
     'use strict';
-    const VERSION = '6.4.2';
+    const VERSION = '6.6.2';
     
     // OpenRouter API Configuration (obfuscated key, no specific @connect needed)
     const OPENROUTER_CONFIG = {
