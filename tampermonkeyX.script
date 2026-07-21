@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Haraj Auto Updater - محدث حراج التلقائي
 // @namespace    http://tampermonkey.net/
-// @version      6.6.2
+// @version      6.7.1
 // @description  Auto update Haraj ads - تحديث إعلانات حراج تلقائياً
 // @author       You
 // @match        https://haraj.com.sa/*
@@ -17,7 +17,7 @@
 
 (function() {
     'use strict';
-    const VERSION = '6.6.2';
+    const VERSION = '6.7.1';
     
     // OpenRouter API Configuration (obfuscated key, no specific @connect needed)
     const OPENROUTER_CONFIG = {
@@ -517,107 +517,89 @@
 
     function makeDraggable(el, dragHandle) {
         const handle = dragHandle || el;
-        let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
-        let isDragging = false;
-        
-        // Touch events for mobile
-        handle.addEventListener('touchstart', function(e) {
+        let startX = 0, startY = 0, startLeft = 0, startTop = 0;
+        let dragging = false;
+        let activePointerId = null;
+
+        handle.style.touchAction = 'none';
+
+        handle.addEventListener('pointerdown', function(e) {
             // Don't drag if touching a button, input, or the scrollable log
             if (shouldIgnoreDragTarget(e.target)) return;
-            
-            const touch = e.touches[0];
-            pos3 = touch.clientX;
-            pos4 = touch.clientY;
-            isDragging = false;
-        }, { passive: true });
-        
-        handle.addEventListener('touchmove', function(e) {
-            // Don't drag if touching a button, input, or the scrollable log
-            if (shouldIgnoreDragTarget(e.target)) return;
-            
+            // Only respond to the primary mouse button
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+            dragging = true;
+            activePointerId = e.pointerId;
+            startX = e.clientX;
+            startY = e.clientY;
+            const rect = el.getBoundingClientRect();
+            startLeft = rect.left;
+            startTop = rect.top;
+
+            try { handle.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
             e.preventDefault();
-            isDragging = true;
-            
-            const touch = e.touches[0];
-            const clientX = touch.clientX;
-            const clientY = touch.clientY;
-            
-            pos1 = pos3 - clientX;
-            pos2 = pos4 - clientY;
-            pos3 = clientX;
-            pos4 = clientY;
-            
-            let newTop = el.offsetTop - pos2;
-            let newLeft = el.offsetLeft - pos1;
-            
-            // Keep within viewport
-            newTop = Math.max(0, Math.min(newTop, window.innerHeight - el.offsetHeight));
-            newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - el.offsetWidth));
-            
-            el.style.top = newTop + "px";
-            el.style.right = "auto";
-            el.style.bottom = "auto";
-            el.style.left = newLeft + "px";
-        }, { passive: false });
-        
-        // Mouse events for desktop
-        handle.addEventListener('mousedown', function(e) {
-            // Don't drag if clicking a button, input, or the scrollable log
-            if (shouldIgnoreDragTarget(e.target)) return;
-            
-            e.preventDefault();
-            pos3 = e.clientX;
-            pos4 = e.clientY;
-            isDragging = false;
-            document.addEventListener('mousemove', mouseMove);
-            document.addEventListener('mouseup', mouseUp);
         });
-        
-        function mouseMove(e) {
+
+        handle.addEventListener('pointermove', function(e) {
+            if (!dragging || e.pointerId !== activePointerId) return;
             e.preventDefault();
-            isDragging = true;
-            
-            pos1 = pos3 - e.clientX;
-            pos2 = pos4 - e.clientY;
-            pos3 = e.clientX;
-            pos4 = e.clientY;
-            
-            let newTop = el.offsetTop - pos2;
-            let newLeft = el.offsetLeft - pos1;
-            
+
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+
+            let newLeft = startLeft + dx;
+            let newTop = startTop + dy;
+
             // Keep within viewport
-            newTop = Math.max(0, Math.min(newTop, window.innerHeight - el.offsetHeight));
             newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - el.offsetWidth));
-            
+            newTop = Math.max(0, Math.min(newTop, window.innerHeight - el.offsetHeight));
+
+            el.style.left = newLeft + "px";
             el.style.top = newTop + "px";
             el.style.right = "auto";
             el.style.bottom = "auto";
-            el.style.left = newLeft + "px";
+        });
+
+        function endDrag(e) {
+            if (e.pointerId !== activePointerId) return;
+            dragging = false;
+            activePointerId = null;
+            try { handle.releasePointerCapture(e.pointerId); } catch (err) { /* ignore */ }
         }
-        
-        function mouseUp() {
-            document.removeEventListener('mousemove', mouseMove);
-            document.removeEventListener('mouseup', mouseUp);
+
+        handle.addEventListener('pointerup', endDrag);
+        handle.addEventListener('pointercancel', endDrag);
+    }
+
+    function getAuthState() {
+        // The site's persisted auth store key name — try 'login' first (confirmed),
+        // with a couple of fallbacks in case it changes again.
+        const candidateKeys = ['login', 'statlogin', 'auth'];
+        for (const key of candidateKeys) {
+            try {
+                const raw = localStorage.getItem(key);
+                if (!raw) continue;
+                const parsed = JSON.parse(raw);
+                if (parsed?.state?.accessToken || parsed?.state?.username) {
+                    return parsed.state;
+                }
+            } catch (e) {
+                // ignore and try next key
+            }
         }
+        return null;
     }
 
     function extractToken() {
-        // Primary source: accessToken lives inside localStorage 'statlogin' now
-        try {
-            const statlogin = localStorage.getItem('statlogin');
-            if (statlogin) {
-                const parsed = JSON.parse(statlogin);
-                const token = parsed?.state?.accessToken;
-                if (token) {
-                    const parts = token.split('.');
-                    if (parts.length === 3) {
-                        CONFIG.token = token;
-                        addLog('success', '✓ تم استخراج التوكن من الجلسة');
-                    }
-                }
+        // Primary source: accessToken lives inside the persisted 'login' store now
+        const authState = getAuthState();
+        if (authState?.accessToken) {
+            const parts = authState.accessToken.split('.');
+            if (parts.length === 3) {
+                CONFIG.token = authState.accessToken;
+                addLog('success', '✓ تم استخراج التوكن من الجلسة');
             }
-        } catch (e) {
-            console.error('Failed to extract accessToken from statlogin:', e);
         }
         
         // Extract CLIENT_ID from localStorage meta
@@ -640,7 +622,7 @@
             addLog('warning', '⚠ استخدام CLIENT_ID الافتراضي');
         }
         
-        // Fallback: only check the cookie if statlogin didn't give us a token
+        // Fallback: only check the cookie if getAuthState() didn't give us a token
         if (!CONFIG.token) {
             const cookieString = document.cookie;
             const accessTokenMatch = cookieString.match(/accessToken=([^;]+)/);
@@ -663,17 +645,8 @@
     }
 
     function getMyUsername() {
-        try {
-            const statlogin = localStorage.getItem('statlogin');
-            if (statlogin) {
-                const parsed = JSON.parse(statlogin);
-                const username = parsed?.state?.username;
-                if (username) return username;
-            }
-        } catch (e) {
-            console.error('Failed to extract username from statlogin:', e);
-        }
-        return null;
+        const authState = getAuthState();
+        return authState?.username || null;
     }
 
     function openMyAds() {
