@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Haraj Auto Updater - محدث حراج التلقائي
 // @namespace    http://tampermonkey.net/
-// @version      6.7.1
+// @version      6.8.2
 // @description  Auto update Haraj ads - تحديث إعلانات حراج تلقائياً
 // @author       You
 // @match        https://haraj.com.sa/*
@@ -17,7 +17,7 @@
 
 (function() {
     'use strict';
-    const VERSION = '6.7.1';
+    const VERSION = '6.8.2';
     
     // OpenRouter API Configuration (obfuscated key, no specific @connect needed)
     const OPENROUTER_CONFIG = {
@@ -652,8 +652,8 @@
     function openMyAds() {
         const username = getMyUsername();
         if (username) {
-            window.open(`https://haraj.com.sa/en/users/${username}`, '_blank');
             addLog('info', `فتح إعلاناتي: ${username}`);
+            window.location.href = `https://haraj.com.sa/en/users/${username}`;
         } else {
             addLog('error', 'لم يتم العثور على اسم المستخدم - سجل الدخول أولاً');
         }
