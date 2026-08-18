@@ -41,6 +41,16 @@
     let stats = { total: 0, updated: 0, failed: 0 };
     let tokenExpiredCount = 0;
 
+    // Presets State Management
+    let presets = JSON.parse(localStorage.getItem('haraj_presets') || '[]');
+    let currentEditIndex = -1;
+    let tempImages = [];
+
+    const LOCATIONS = {
+        riyadh: { lat: 24.7135517, lon: 46.6752957, name: "الرياض" },
+        jeddah: { lat: 21.492083616072, lon: 39.364103710848, name: "جدة" }
+    };
+
     GM_addStyle(`
         #haraj-menu {
             position: fixed; top: 20px; right: 20px; width: 340px;
@@ -370,28 +380,74 @@
                 <button id="haraj-minimize">−</button>
             </div>
             <div id="haraj-content">
-                <div class="token-warning" id="token-warning">⚠️ انتهت الجلسة - مشكلة من السيرفر</div>
-                <button class="btn-relogin" id="relogin-btn">🔄 إعادة تسجيل الدخول</button>
-                <div class="speed-control">
-                    <button class="speed-btn" data-speed="3">3 دفعة</button>
-                    <button class="speed-btn active" data-speed="6">6 دفعة</button>
-                    <button class="speed-btn" data-speed="12">12 دفعة</button>
+                <!-- MAIN VIEW -->
+                <div id="main-view">
+                    <div class="token-warning" id="token-warning">⚠️ انتهت الجلسة - مشكلة من السيرفر</div>
+                    <button class="btn-relogin" id="relogin-btn">🔄 إعادة تسجيل الدخول</button>
+                    <div class="speed-control">
+                        <button class="speed-btn" data-speed="3">3 دفعة</button>
+                        <button class="speed-btn active" data-speed="6">6 دفعة</button>
+                        <button class="speed-btn" data-speed="12">12 دفعة</button>
+                    </div>
+                    <div class="btn-grid">
+                        <button class="haraj-btn btn-start" id="update-btn">▶️ تحديث</button>
+                        <button class="haraj-btn btn-myads" id="myads-btn" style="background:linear-gradient(135deg, #8b5cf6, #7c3aed) !important; color:white !important;">📋 اعلاناتي</button>
+                    </div>
+                    <div class="btn-grid">
+                        <button class="haraj-btn btn-like" id="like-btn" disabled>❤️ تفضيل</button>
+                        <button class="haraj-btn btn-stop" id="stop-btn" disabled>⏸️ إيقاف</button>
+                    </div>
+                    <div class="btn-grid-full">
+                        <button class="haraj-btn" id="presets-btn" style="width:100% !important; background:linear-gradient(135deg, #8b5cf6, #7c3aed) !important; color:white !important;">📋 قوالب النشر</button>
+                    </div>
+                    <div class="stats">
+                        <div class="stat"><span class="stat-value" id="stat-total">0</span><span class="stat-label">إجمالي</span></div>
+                        <div class="stat"><span class="stat-value" id="stat-updated">0</span><span class="stat-label">محدث</span></div>
+                        <div class="stat"><span class="stat-value" id="stat-failed">0</span><span class="stat-label">فشل</span></div>
+                        <div class="stat"><span class="stat-value" id="stat-remaining">0</span><span class="stat-label">متبقي</span></div>
+                    </div>
+                    <div class="progress"><div class="progress-bar" id="progress"></div></div>
+                    <div class="log" id="log"></div>
                 </div>
-                <div class="btn-grid-full">
-                    <button class="haraj-btn btn-start" id="update-btn">▶️ تحديث</button>
+
+                <!-- PRESETS LIST VIEW -->
+                <div id="presets-view" style="display: none;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                        <span style="font-weight:700; font-size:12px;">📋 القوالب المحفوظة</span>
+                        <button class="haraj-btn btn-stop" id="btn-back-to-main" style="padding:4px 8px !important; font-size:10px !important;">رجوع</button>
+                    </div>
+                    <div id="presets-list" style="max-height:150px; overflow-y:auto; margin-bottom:8px; display:flex; flex-direction:column; gap:6px;"></div>
+                    <button class="haraj-btn btn-start" id="btn-add-preset-form" style="width:100% !important; padding:8px !important; font-size:11px !important;">➕ إضافة قالب جديد</button>
                 </div>
-                <div class="btn-grid">
-                    <button class="haraj-btn btn-like" id="like-btn" disabled>❤️ تفضيل</button>
-                    <button class="haraj-btn btn-stop" id="stop-btn" disabled>⏸️ إيقاف</button>
+
+                <!-- PRESET FORM VIEW -->
+                <div id="preset-form-view" style="display: none;">
+                    <span id="form-title" style="font-weight:700; font-size:12px; display:block; margin-bottom:6px;">➕ قالب جديد</span>
+                    <input type="text" id="preset-title" style="width:100% !important; margin-bottom:6px !important; padding:6px !important; background:rgba(255,255,255,0.15) !important; border:1px solid rgba(255,255,255,0.2) !important; color:white !important; border-radius:6px !important; font-size:11px !important;" placeholder="عنوان الإعلان" />
+                    <textarea id="preset-desc" style="width:100% !important; height:60px !important; margin-bottom:6px !important; padding:6px !important; background:rgba(255,255,255,0.15) !important; border:1px solid rgba(255,255,255,0.2) !important; color:white !important; border-radius:6px !important; font-size:11px !important; resize:none;" placeholder="نص الإعلان (الوصف)"></textarea>
+                    
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:6px;">
+                        <input type="number" id="preset-price" style="width:100% !important; padding:6px !important; background:rgba(255,255,255,0.15) !important; border:1px solid rgba(255,255,255,0.2) !important; color:white !important; border-radius:6px !important; font-size:11px !important;" placeholder="السعر (اختياري)" />
+                        <input type="text" id="preset-phone" style="width:100% !important; padding:6px !important; background:rgba(255,255,255,0.15) !important; border:1px solid rgba(255,255,255,0.2) !important; color:white !important; border-radius:6px !important; font-size:11px !important;" placeholder="رقم التواصل" value="966557507544" />
+                    </div>
+
+                    <select id="preset-location" style="width:100% !important; margin-bottom:6px !important; padding:6px !important; background:#764ba2 !important; border:1px solid rgba(255,255,255,0.2) !important; color:white !important; border-radius:6px !important; font-size:11px !important;">
+                        <option value="jeddah">جدة</option>
+                        <option value="riyadh">الرياض</option>
+                    </select>
+
+                    <div style="margin-bottom:8px; background:rgba(0,0,0,0.2); padding:6px; border-radius:6px;">
+                        <label style="font-size:10px; display:block; margin-bottom:4px;">تحميل الصور:</label>
+                        <input type="file" id="preset-image-uploader" multiple accept="image/*" style="font-size:10px; display:block; width:100%; margin-bottom:4px;" />
+                        <div id="upload-status" style="font-size:10px; color:#10b981; margin-bottom:4px; font-weight:700;"></div>
+                        <div id="preset-images-preview" style="display:flex; gap:6px; overflow-x:auto; padding:4px; max-height:45px;"></div>
+                    </div>
+
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                        <button class="haraj-btn btn-start" id="btn-save-preset" style="padding:8px !important;">حفظ</button>
+                        <button class="haraj-btn btn-stop" id="btn-cancel-preset" style="padding:8px !important;">إلغاء</button>
+                    </div>
                 </div>
-                <div class="stats">
-                    <div class="stat"><span class="stat-value" id="stat-total">0</span><span class="stat-label">إجمالي</span></div>
-                    <div class="stat"><span class="stat-value" id="stat-updated">0</span><span class="stat-label">محدث</span></div>
-                    <div class="stat"><span class="stat-value" id="stat-failed">0</span><span class="stat-label">فشل</span></div>
-                    <div class="stat"><span class="stat-value" id="stat-remaining">0</span><span class="stat-label">متبقي</span></div>
-                </div>
-                <div class="progress"><div class="progress-bar" id="progress"></div></div>
-                <div class="log" id="log"></div>
             </div>
         `;
         document.body.appendChild(menu);
@@ -419,9 +475,341 @@
         document.getElementById('update-btn').onclick = loadAndUpdate;
         document.getElementById('like-btn').onclick = likeAll;
         document.getElementById('stop-btn').onclick = stop;
+
+        // Presets View Switchers
+        document.getElementById('presets-btn').onclick = () => {
+            renderPresets();
+            switchView('presets');
+        };
+        document.getElementById('btn-back-to-main').onclick = () => switchView('main');
+        document.getElementById('btn-add-preset-form').onclick = () => openPresetForm(-1);
+        document.getElementById('btn-save-preset').onclick = savePreset;
+        document.getElementById('btn-cancel-preset').onclick = () => switchView('presets');
+        document.getElementById('preset-image-uploader').onchange = handleImageUpload;
         
         addLog('info', `🚀 محدث حراج v${VERSION} جاهز!`);
     }
+
+    function switchView(viewName) {
+        document.getElementById('main-view').style.display = viewName === 'main' ? 'block' : 'none';
+        document.getElementById('presets-view').style.display = viewName === 'presets' ? 'block' : 'none';
+        document.getElementById('preset-form-view').style.display = viewName === 'form' ? 'block' : 'none';
+    }
+
+    function renderPresets() {
+        const listDiv = document.getElementById('presets-list');
+        if (!listDiv) return;
+        listDiv.innerHTML = '';
+        if (presets.length === 0) {
+            listDiv.innerHTML = '<div style="font-size:10px; text-align:center; padding:10px; opacity:0.8;">لا توجد قوالب محفوظة</div>';
+            return;
+        }
+        
+        presets.forEach((preset, index) => {
+            const item = document.createElement('div');
+            item.style.cssText = 'background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:6px; display:flex; flex-direction:column; gap:4px; font-size:11px;';
+            
+            const header = document.createElement('div');
+            header.style.cssText = 'display:flex; justify-content:space-between; align-items:center;';
+            
+            const titleSpan = document.createElement('span');
+            titleSpan.style.cssText = 'font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:200px; cursor:pointer;';
+            titleSpan.textContent = preset.title;
+            titleSpan.onclick = () => {
+                runPresetValidation(preset);
+                switchView('main');
+            };
+
+            const actionsDiv = document.createElement('div');
+            actionsDiv.style.cssText = 'display:flex; gap:4px;';
+
+            const cloneBtn = document.createElement('button');
+            cloneBtn.innerHTML = '📋';
+            cloneBtn.title = 'نسخ';
+            cloneBtn.style.cssText = 'background:rgba(255,255,255,0.2); border:none; border-radius:4px; color:white; font-size:10px; cursor:pointer; padding:3px;';
+            cloneBtn.onclick = (e) => {
+                e.stopPropagation();
+                clonePreset(index);
+            };
+
+            const editBtn = document.createElement('button');
+            editBtn.innerHTML = '✏️';
+            editBtn.title = 'تعديل';
+            editBtn.style.cssText = 'background:rgba(255,255,255,0.2); border:none; border-radius:4px; color:white; font-size:10px; cursor:pointer; padding:3px;';
+            editBtn.onclick = (e) => {
+                e.stopPropagation();
+                openPresetForm(index);
+            };
+
+            const delBtn = document.createElement('button');
+            delBtn.innerHTML = '🗑️';
+            delBtn.title = 'حذف';
+            delBtn.style.cssText = 'background:rgba(239,68,68,0.4); border:none; border-radius:4px; color:white; font-size:10px; cursor:pointer; padding:3px;';
+            delBtn.onclick = (e) => {
+                e.stopPropagation();
+                deletePreset(index);
+            };
+
+            actionsDiv.appendChild(cloneBtn);
+            actionsDiv.appendChild(editBtn);
+            actionsDiv.appendChild(delBtn);
+            header.appendChild(titleSpan);
+            header.appendChild(actionsDiv);
+            item.appendChild(header);
+
+            const details = document.createElement('div');
+            details.style.cssText = 'display:flex; justify-content:space-between; font-size:9px; opacity:0.8;';
+            const locName = LOCATIONS[preset.location]?.name || preset.location;
+            const priceText = preset.price ? `${preset.price} ريال` : 'بدون سعر';
+            const imgCount = preset.images ? preset.images.length : 0;
+            details.innerHTML = `<span>📍 ${locName} | 💰 ${priceText}</span> <span>🖼️ ${imgCount} صور</span>`;
+            item.appendChild(details);
+            
+            listDiv.appendChild(item);
+        });
+    }
+
+    function openPresetForm(index = -1) {
+        currentEditIndex = index;
+        const formTitle = document.getElementById('form-title');
+        const titleInput = document.getElementById('preset-title');
+        const descInput = document.getElementById('preset-desc');
+        const priceInput = document.getElementById('preset-price');
+        const phoneInput = document.getElementById('preset-phone');
+        const locSelect = document.getElementById('preset-location');
+        const statusDiv = document.getElementById('upload-status');
+        
+        statusDiv.textContent = '';
+        document.getElementById('preset-image-uploader').value = '';
+
+        if (index >= 0) {
+            formTitle.textContent = '✏️ تعديل قالب';
+            const p = presets[index];
+            titleInput.value = p.title || '';
+            descInput.value = p.description || '';
+            priceInput.value = p.price || '';
+            phoneInput.value = p.phone || '966557507544';
+            locSelect.value = p.location || 'jeddah';
+            tempImages = [...(p.images || [])];
+        } else {
+            formTitle.textContent = '➕ قالب جديد';
+            titleInput.value = '';
+            descInput.value = '';
+            priceInput.value = '';
+            phoneInput.value = '966557507544';
+            locSelect.value = 'jeddah';
+            tempImages = [];
+        }
+        renderImagesPreview();
+        switchView('form');
+    }
+
+    function renderImagesPreview() {
+        const container = document.getElementById('preset-images-preview');
+        if (!container) return;
+        container.innerHTML = '';
+        tempImages.forEach((img, idx) => {
+            const wrapper = document.createElement('div');
+            wrapper.style.cssText = 'position:relative; width:36px; height:36px; flex-shrink:0;';
+            
+            const thumb = document.createElement('img');
+            thumb.src = img;
+            thumb.style.cssText = 'width:100%; height:100%; object-fit:cover; border-radius:4px; border:1px solid rgba(255,255,255,0.3);';
+            
+            const removeBtn = document.createElement('div');
+            removeBtn.innerHTML = '×';
+            removeBtn.style.cssText = 'position:absolute; top:-2px; right:-2px; background:red; color:white; border-radius:50%; width:12px; height:12px; display:flex; align-items:center; justify-content:center; font-size:8px; cursor:pointer; font-weight:bold;';
+            removeBtn.onclick = () => {
+                tempImages.splice(idx, 1);
+                renderImagesPreview();
+            };
+            
+            wrapper.appendChild(thumb);
+            wrapper.appendChild(removeBtn);
+            container.appendChild(wrapper);
+        });
+    }
+
+    async function handleImageUpload(e) {
+        const files = e.target.files;
+        if (!files.length) return;
+        
+        const statusDiv = document.getElementById('upload-status');
+        statusDiv.textContent = 'جاري الرفع...';
+        
+        let successCount = 0;
+        let failCount = 0;
+        
+        for (let file of files) {
+            try {
+                const imageUrl = await uploadToHaraj(file);
+                if (imageUrl) {
+                    tempImages.push(imageUrl);
+                    successCount++;
+                } else {
+                    failCount++;
+                }
+            } catch (err) {
+                console.error('Image upload failed:', err);
+                failCount++;
+            }
+            renderImagesPreview();
+        }
+        
+        if (failCount > 0) {
+            statusDiv.textContent = `تم رفع ${successCount} صور بنجاح، وفشل ${failCount}`;
+            statusDiv.style.color = '#ef4444';
+        } else {
+            statusDiv.textContent = `تم الرفع بنجاح! (${successCount} صور)`;
+            statusDiv.style.color = '#10b981';
+        }
+    }
+
+    async function uploadToHaraj(file) {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await fetch('https://k1mctje3wh.execute-api.eu-west-1.amazonaws.com/release/upload', {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'Accept': '*/*',
+                'Origin': 'https://haraj.com.sa'
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`Upload server error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        let rawPath = data.path || data.url || data.location || (data.data && (data.data.url || data.data.path)) || null;
+        if (!rawPath) {
+            if (typeof data === 'string') rawPath = data;
+            else if (data.filename) rawPath = data.filename;
+        }
+
+        if (rawPath) {
+            if (!rawPath.startsWith('http')) {
+                const cleanPath = rawPath.startsWith('/') ? rawPath.substring(1) : rawPath;
+                return `https://s3-eu-west-1.amazonaws.com/img4.haraj.com.sa/${cleanPath}`;
+            }
+            return rawPath;
+        }
+        
+        throw new Error('Could not parse image URL');
+    }
+
+    function savePreset() {
+        const title = document.getElementById('preset-title').value.trim();
+        const description = document.getElementById('preset-desc').value.trim();
+        const price = document.getElementById('preset-price').value.trim();
+        const phone = document.getElementById('preset-phone').value.trim();
+        const location = document.getElementById('preset-location').value;
+
+        if (!title) {
+            alert('يرجى إدخال عنوان القالب');
+            return;
+        }
+
+        const presetData = {
+            title,
+            description,
+            price: price ? parseInt(price) : null,
+            phone: phone || '966557507544',
+            location,
+            images: [...tempImages]
+        };
+
+        if (currentEditIndex >= 0) {
+            presets[currentEditIndex] = presetData;
+        } else {
+            presets.push(presetData);
+        }
+
+        localStorage.setItem('haraj_presets', JSON.stringify(presets));
+        renderPresets();
+        switchView('presets');
+    }
+
+    function deletePreset(index) {
+        if (confirm('هل أنت متأكد من حذف هذا القالب؟')) {
+            presets.splice(index, 1);
+            localStorage.setItem('haraj_presets', JSON.stringify(presets));
+            renderPresets();
+        }
+    }
+
+    function clonePreset(index) {
+        const original = presets[index];
+        const clone = {
+            ...original,
+            title: original.title + ' (نسخة)'
+        };
+        presets.push(clone);
+        localStorage.setItem('haraj_presets', JSON.stringify(presets));
+        renderPresets();
+    }
+
+    async function runPresetValidation(preset) {
+        if (!extractToken()) {
+            addLog('error', 'فشل استخراج التوكن - يرجى تسجيل الدخول');
+            return;
+        }
+
+        addLog('info', `⏳ بدء التحقق من القالب: ${preset.title}...`);
+
+        const lat = LOCATIONS[preset.location]?.lat || 21.492083616072;
+        const lon = LOCATIONS[preset.location]?.lon || 39.364103710848;
+
+        const lang = document.documentElement.lang || 'ar';
+        const url = `${CONFIG.graphqlEndpoint}?queryName=validatePost&lang=${lang}&clientId=${CONFIG.clientId}&version=N0.0.1%20,%202026-08-11%2022/`;
+
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': '*/*',
+                    'Origin': 'https://haraj.com.sa',
+                    'Referer': 'https://haraj.com.sa/',
+                    'Authorization': 'Bearer ' + CONFIG.token
+                },
+                credentials: 'include',
+                body: JSON.stringify({
+                    query: `query ValidatePostQuery($carExtraInfo: CarExtraInfo, $token: String!, $title: String!, $bodyTEXT: String!, $contact: String = null, $tags: [String] = null, $imagesList: [String] = null, $lat: Float!, $lon: Float!, $price: String = null, $locationInfoSource: locationInfoSource = null, $re_ExtraInfo: Re_ExtraInfo = null, $GeneralExtraInfo: [KeyValuePair] = null) {\n  validatePost(\n    CarExtraInfo: $carExtraInfo\n    token: $token\n    title: $title\n    bodyTEXT: $bodyTEXT\n    contact: $contact\n    tags: $tags\n    imagesList: $imagesList\n    lat: $lat\n    lon: $lon\n    price: $price\n    locationInfoSource: $locationInfoSource\n    re_ExtraInfo: $re_ExtraInfo\n    GeneralExtraInfo: $GeneralExtraInfo\n  ) {\n    status\n    notValidReason\n  }\n}`,
+                    variables: {
+                        token: CONFIG.token,
+                        title: preset.title,
+                        bodyTEXT: preset.description,
+                        lat: lat,
+                        lon: lon,
+                        contact: preset.phone || "966557507544",
+                        tags: ["كل الحراج", "اثاث", "طاولات وكراسي"],
+                        imagesList: preset.images || [],
+                        price: preset.price ? String(preset.price) : null,
+                        carExtraInfo: null,
+                        locationInfoSource: "API",
+                        re_ExtraInfo: null,
+                        GeneralExtraInfo: null
+                    }
+                })
+            });
+
+            const data = await response.json();
+            
+            if (data.data?.validatePost?.status === true) {
+                addLog('success', `✓ ${preset.title}: تم التحقق بنجاح!`);
+            } else {
+                const reason = data.data?.validatePost?.notValidReason || 'فشل غير معروف';
+                addLog('error', `✗ ${preset.title}: فشل التحقق (${reason})`);
+            }
+        } catch (error) {
+            console.error('Validation request failed:', error);
+            addLog('error', `✗ ${preset.title}: خطأ في شبكة الاتصال`);
+        }
+    }
+
 
     function makeDraggable(el) {
         const header = el.querySelector('#haraj-header');
