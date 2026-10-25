@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         Haraj Auto Updater - محدث حراج التلقائي
+// @name         Haraj Plus - حراج بلس
 // @namespace    http://tampermonkey.net/
-// @version      6.8.2
-// @description  Auto update Haraj ads - تحديث إعلانات حراج تلقائياً
-// @author       You
+// @version      7.0.0
+// @description  Haraj auto-updater and toolkit with native Haraj theme - تحديث إعلانات حراج بلس
+// @author       Haraj Plus
 // @match        https://haraj.com.sa/*
 // @match        https://www.haraj.com.sa/*
 // @match        https://haraj.com/*
@@ -17,15 +17,15 @@
 
 (function() {
     'use strict';
-    const VERSION = '6.8.2';
-    
-    // OpenRouter API Configuration (obfuscated key, no specific @connect needed)
+    const VERSION = '7.0.0';
+
+    // OpenRouter API Configuration
     const OPENROUTER_CONFIG = {
         apiKey: atob('c2stb3ItdjEtZThlOGNjZjMyOTYxMGRiYjA4ODMxYzExYmU5YWY2ZThmMWFiN2UyYzgyN2IzYjc2YzQ5MzhiYmE4MTY5NGVjOA=='),
         apiUrl: 'https://openrouter.ai/api/v1/chat/completions',
         model: 'google/gemma-4-31b-it:free'
     };
-    
+
     const CONFIG = {
         updateInterval: localStorage.getItem('updateInterval') ? parseInt(localStorage.getItem('updateInterval')) : 1000,
         adsPerBatch: localStorage.getItem('adsPerBatch') ? parseInt(localStorage.getItem('adsPerBatch')) : 6,
@@ -40,541 +40,847 @@
     let stats = { total: 0, updated: 0, failed: 0 };
     let tokenExpiredCount = 0;
 
+    // Detect language from Haraj
+    function getHarajLang() {
+        if (window.location.pathname.startsWith('/en') || window.location.pathname.includes('/en/')) {
+            return 'en';
+        }
+        const htmlLang = (document.documentElement.lang || '').toLowerCase();
+        if (htmlLang.startsWith('en')) {
+            return 'en';
+        }
+        try {
+            const stored = localStorage.getItem('i18nextLng') || localStorage.getItem('lang');
+            if (stored && stored.toLowerCase().startsWith('en')) {
+                return 'en';
+            }
+        } catch (e) {}
+        return 'ar';
+    }
+
+    const isAr = getHarajLang() === 'ar';
+    const I18N = {
+        plus: isAr ? 'بلس' : 'Plus',
+        title: isAr ? 'حراج بلس' : 'Haraj Plus',
+        update: isAr ? 'تحديث' : 'Update',
+        updating: isAr ? 'جاري التحديث...' : 'Updating...',
+        stop: isAr ? 'إيقاف' : 'Stop',
+        myAds: isAr ? 'اعلاناتي' : 'My Ads',
+        batch: isAr ? 'دفعة' : 'Batch',
+        total: isAr ? 'إجمالي' : 'Total',
+        updated: isAr ? 'محدث' : 'Updated',
+        failed: isAr ? 'فشل' : 'Failed',
+        remaining: isAr ? 'متبقي' : 'Remaining',
+        logTitle: isAr ? 'سجل العمليات واستجابة السيرفر' : 'Debug Log & Server Response',
+        sessionWarning: isAr ? '⚠️ انتهت الجلسة - مشكلة من السيرفر' : '⚠️ Session Expired',
+        relogin: isAr ? '🔄 إعادة تسجيل الدخول' : '🔄 Login Again',
+        ready: isAr ? `🚀 حراج بلس جاهز (v${VERSION})` : `🚀 Haraj Plus ready (v${VERSION})`,
+        noAds: isAr ? 'لم يتم العثور على إعلانات في الصفحة' : 'No ads found on this page',
+        loadedAds: isAr ? 'تم تحميل %s إعلان' : 'Loaded %s ads',
+        done: isAr ? '✅ اكتمل التحديث بنجاح!' : '✅ Update completed successfully!',
+        stopped: isAr ? '⏹️ تم إيقاف التحديث' : '⏹️ Update stopped'
+    };
+
+    // Inject styles matching Haraj's native blue, white, and dark theme
     GM_addStyle(`
-        #haraj-menu {
-            position: fixed !important; top: 8px !important; right: 8px !important; width: 200px !important;
-            background: linear-gradient(145deg, #667eea 0%, #764ba2 100%) !important;
-            border-radius: 8px !important; box-shadow: 0 6px 20px rgba(0,0,0,0.5) !important; z-index: 999999 !important;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important; color: white !important;
-            direction: rtl !important; border: 2px solid rgba(255,255,255,0.15) !important;
-            touch-action: none !important; user-select: none !important;
-            transition: opacity 0.3s ease, transform 0.3s ease !important;
+        /* Bottom Navigation Item styling */
+        .haraj-plus-nav-item {
+            margin-top: 4px !important;
+            display: grid !important;
+            flex: 1 1 0% !important;
+            justify-content: center !important;
+            justify-items: center !important;
+            gap: 2px !important;
+            color: #64748b !important;
+            cursor: pointer !important;
+            user-select: none !important;
             -webkit-tap-highlight-color: transparent !important;
+            transition: color 0.15s ease, transform 0.15s ease !important;
+            text-decoration: none !important;
         }
-        #haraj-menu.minimized {
+        .haraj-plus-nav-item:active {
+            transform: scale(0.92) !important;
+        }
+        .haraj-plus-nav-item.active {
+            color: #0066cc !important;
+        }
+        .haraj-plus-nav-icon {
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            position: relative !important;
+            width: 24px !important;
+            height: 24px !important;
+        }
+        .haraj-plus-nav-label {
+            text-align: center !important;
+            font-size: 11px !important;
+            font-weight: 500 !important;
+            line-height: 1 !important;
+            font-family: inherit !important;
+        }
+
+        /* Desktop Fallback Floating Trigger Button (only when bottom nav is absent) */
+        #haraj-plus-desktop-btn {
+            position: fixed !important;
+            bottom: 24px !important;
+            right: 24px !important;
+            width: 48px !important;
+            height: 48px !important;
+            border-radius: 50% !important;
+            background: #0066cc !important;
+            color: #ffffff !important;
+            display: none;
+            align-items: center !important;
+            justify-content: center !important;
+            box-shadow: 0 4px 14px rgba(0, 102, 204, 0.4) !important;
+            cursor: pointer !important;
+            z-index: 999990 !important;
+            border: 2px solid #ffffff !important;
+            transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+        }
+        #haraj-plus-desktop-btn:hover {
+            transform: scale(1.05) !important;
+            box-shadow: 0 6px 20px rgba(0, 102, 204, 0.5) !important;
+        }
+
+        /* Haraj Plus Popup Modal - Clean Haraj Theme (Blue, White, Black/Dark) */
+        #haraj-plus-modal {
+            position: fixed !important;
+            bottom: 68px !important;
+            left: 50% !important;
+            transform: translateX(-50%) translateY(12px) scale(0.96) !important;
+            width: calc(100% - 24px) !important;
+            max-width: 350px !important;
+            background: #ffffff !important;
+            color: #0f172a !important;
+            border-radius: 16px !important;
+            box-shadow: 0 12px 35px -4px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(0, 0, 0, 0.08) !important;
+            z-index: 999995 !important;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Tajawal", sans-serif !important;
+            direction: ${isAr ? 'rtl' : 'ltr'} !important;
             opacity: 0 !important;
-            transform: scale(0.8) !important;
             pointer-events: none !important;
-        }
-        #haraj-header {
-            background: rgba(0,0,0,0.3) !important; padding: 6px 8px !important; cursor: move !important;
-            display: flex !important; justify-content: space-between !important; align-items: center !important;
-            border-radius: 6px 6px 0 0 !important; border-bottom: 2px solid rgba(255,255,255,0.1) !important;
-            touch-action: none !important;
+            transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;
+            overflow: hidden !important;
             -webkit-user-select: none !important;
             user-select: none !important;
         }
-        #haraj-header h3 {
-            margin: 0 !important; font-size: 11px !important; font-weight: 700 !important; 
-            letter-spacing: 0.2px !important; display: flex !important; align-items: center !important; gap: 4px !important;
-            color: white !important;
-            flex: 1 !important;
+        #haraj-plus-modal.show {
+            opacity: 1 !important;
+            pointer-events: auto !important;
+            transform: translateX(-50%) translateY(0) scale(1) !important;
         }
-        .minimize-btn {
-            background: rgba(255,255,255,0.2) !important; border: none !important; color: white !important;
-            width: 24px !important; height: 24px !important; border-radius: 4px !important; cursor: pointer !important;
-            font-size: 16px !important; font-weight: bold !important; transition: all 0.2s !important;
-            display: flex !important; align-items: center !important; justify-content: center !important;
-            -webkit-tap-highlight-color: transparent !important;
-            flex-shrink: 0 !important;
+
+        /* Haraj Dark Mode Support */
+        html.dark #haraj-plus-modal,
+        body.dark #haraj-plus-modal {
+            background: #18191a !important;
+            color: #f8fafc !important;
+            box-shadow: 0 12px 35px -4px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.12) !important;
         }
-        .minimize-btn:active {
-            background: rgba(255,255,255,0.4) !important; transform: scale(0.9) !important;
-        }
-        .version-badge {
-            font-size: 7px !important; background: rgba(16,185,129,0.3) !important; padding: 1px 4px !important;
-            border-radius: 6px !important; font-weight: 600 !important; border: 1px solid rgba(16,185,129,0.5) !important;
-            color: white !important;
-        }
-        #haraj-toggle-btn {
-            position: fixed !important; top: 8px !important; right: 8px !important;
-            width: 50px !important; height: 50px !important;
-            background: linear-gradient(145deg, #667eea 0%, #764ba2 100%) !important;
-            border: 3px solid rgba(255,255,255,0.4) !important;
-            border-radius: 50% !important;
-            box-shadow: 0 5px 20px rgba(0,0,0,0.6) !important;
-            cursor: move !important;
-            z-index: 999998 !important;
-            display: none !important;
-            align-items: center !important;
-            justify-content: center !important;
-            font-size: 24px !important;
-            color: white !important;
-            touch-action: none !important;
-            user-select: none !important;
-            transition: transform 0.2s ease, box-shadow 0.2s ease !important;
-            -webkit-tap-highlight-color: transparent !important;
-        }
-        #haraj-toggle-btn.show {
-            display: flex !important;
-        }
-        #haraj-toggle-btn:active {
-            transform: scale(0.85) !important;
-            box-shadow: 0 3px 15px rgba(0,0,0,0.7) !important;
-        }
-        #haraj-content { padding: 8px !important; }
-        .speed-control {
-            display: flex !important; gap: 4px !important; margin-bottom: 8px !important;
-            background: rgba(0,0,0,0.25) !important; padding: 4px !important; border-radius: 5px !important;
-            border: 1px solid rgba(255,255,255,0.15) !important;
-        }
-        .speed-btn {
-            flex: 1 !important; padding: 6px 2px !important; border: 1.5px solid rgba(255,255,255,0.25) !important;
-            border-radius: 4px !important; background: rgba(255,255,255,0.12) !important; color: white !important;
-            font-size: 8px !important; font-weight: 700 !important; cursor: pointer !important; 
-            transition: all 0.2s !important;
-            -webkit-tap-highlight-color: transparent !important;
-        }
-        .speed-btn:active {
-            background: rgba(255,255,255,0.25) !important; transform: scale(0.9) !important;
-        }
-        .speed-btn.active {
-            background: rgba(16,185,129,0.5) !important; border-color: #10b981 !important;
-            box-shadow: 0 0 8px rgba(16,185,129,0.4) !important;
-        }
-        .btn-grid { display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 5px !important; margin-bottom: 8px !important; }
-        .btn-grid-full { display: grid !important; grid-template-columns: 1fr !important; gap: 5px !important; margin-bottom: 8px !important; }
-        .haraj-btn {
-            padding: 8px 4px !important; border: none !important; border-radius: 5px !important; 
-            font-size: 9px !important; font-weight: 700 !important; cursor: pointer !important; 
-            transition: all 0.2s !important; box-shadow: 0 2px 6px rgba(0,0,0,0.3) !important;
-            color: white !important;
-            -webkit-tap-highlight-color: transparent !important;
-        }
-        .haraj-btn:disabled { opacity: 0.4 !important; cursor: not-allowed !important; box-shadow: none !important; }
-        .haraj-btn:active:not(:disabled) {
-            transform: scale(0.9) !important; box-shadow: 0 1px 3px rgba(0,0,0,0.4) !important;
-        }
-        .btn-load { background: linear-gradient(135deg, #3b82f6, #2563eb) !important; }
-        .btn-start { background: linear-gradient(135deg, #10b981, #059669) !important; }
-        .btn-like { background: linear-gradient(135deg, #f59e0b, #d97706) !important; }
-        .btn-stop { background: linear-gradient(135deg, #ef4444, #dc2626) !important; }
-        .btn-myads { background: linear-gradient(135deg, #8b5cf6, #7c3aed) !important; }
-        .stats { display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 4px !important; margin: 8px 0 !important; }
-        .stat {
-            background: rgba(255,255,255,0.15) !important; padding: 6px 4px !important; border-radius: 5px !important;
-            text-align: center !important; font-size: 8px !important; border: 1px solid rgba(255,255,255,0.12) !important;
-        }
-        .stat-value { font-size: 16px !important; font-weight: 800 !important; display: block !important; margin-bottom: 2px !important; color: white !important; }
-        .stat-label { font-size: 7px !important; opacity: 0.9 !important; font-weight: 600 !important; color: white !important; }
-        .progress {
-            width: 100% !important; height: 6px !important; background: rgba(0,0,0,0.35) !important; border-radius: 3px !important;
-            overflow: hidden !important; margin: 8px 0 !important; border: 1px solid rgba(255,255,255,0.15) !important;
-        }
-        .progress-bar {
-            height: 100% !important; background: linear-gradient(90deg, #10b981, #34d399, #10b981) !important;
-            background-size: 200% 100% !important; transition: width 0.3s !important;
-            box-shadow: 0 0 8px rgba(16,185,129,0.6) !important; animation: shimmer 2s infinite !important;
-        }
-        @keyframes shimmer {
-            0% { background-position: -200% 0; }
-            100% { background-position: 200% 0; }
-        }
-        .log {
-            background: rgba(0,0,0,0.4) !important; border-radius: 5px !important; padding: 6px !important;
-            max-height: 100px !important; overflow-y: auto !important; font-size: 7px !important;
-            border: 1px solid rgba(255,255,255,0.15) !important; 
-            font-family: 'Courier New', monospace !important;
-        }
-        .log::-webkit-scrollbar { width: 4px !important; }
-        .log::-webkit-scrollbar-track { background: rgba(0,0,0,0.3) !important; border-radius: 2px !important; }
-        .log::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.4) !important; border-radius: 2px !important; }
-        .log-entry {
-            padding: 4px 5px !important; margin-bottom: 2px !important; border-radius: 3px !important;
-            border-left: 2px solid transparent !important; line-height: 1.3 !important;
-        }
-        .log-success { background: rgba(16,185,129,0.2) !important; border-left-color: #10b981 !important; }
-        .log-error { background: rgba(239,68,68,0.2) !important; border-left-color: #ef4444 !important; }
-        .log-info { background: rgba(59,130,246,0.2) !important; border-left-color: #3b82f6 !important; }
-        .log-warning { background: rgba(245,158,11,0.2) !important; border-left-color: #f59e0b !important; }
-        .log-time { opacity: 0.7 !important; font-size: 6px !important; margin-left: 4px !important; color: white !important; }
-        .token-warning {
-            background: rgba(239,68,68,0.25) !important; border: 2px solid #ef4444 !important; border-radius: 5px !important;
-            padding: 6px !important; margin-bottom: 8px !important; text-align: center !important;
-            font-size: 8px !important; font-weight: 700 !important; display: none !important;
-            color: white !important;
-        }
-        .token-warning.show { display: block !important; animation: pulse 2s infinite !important; }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.8; transform: scale(1.01); }
-        }
-        .btn-relogin {
-            background: linear-gradient(135deg, #ef4444, #dc2626) !important; color: white !important;
-            width: 100% !important; padding: 7px !important; border: none !important; border-radius: 5px !important;
-            font-size: 9px !important; font-weight: 700 !important; cursor: pointer !important; margin-bottom: 8px !important;
-            display: none !important; box-shadow: 0 2px 8px rgba(239,68,68,0.4) !important;
-            -webkit-tap-highlight-color: transparent !important;
-        }
-        .btn-relogin.show { display: block !important; }
-        .btn-relogin:active {
-            transform: scale(0.9) !important; box-shadow: 0 1px 4px rgba(239,68,68,0.5) !important;
-        }
-        #haraj-content { 
-            padding: 8px !important;
-        }
-        #haraj-menu.minimized #haraj-content { 
-            display: none !important;
-        }
-        
-        /* AI Chat Styles */
-        .ai-helper-btn {
-            position: fixed !important;
-            bottom: 80px !important;
-            left: 8px !important;
-            width: 44px !important;
-            height: 44px !important;
-            background: linear-gradient(145deg, #10b981, #059669) !important;
-            border: 2px solid rgba(255,255,255,0.4) !important;
-            border-radius: 50% !important;
-            box-shadow: 0 4px 12px rgba(16,185,129,0.4) !important;
-            cursor: move !important;
-            z-index: 999997 !important;
+
+        /* Modal Header */
+        .haraj-modal-header {
             display: flex !important;
             align-items: center !important;
-            justify-content: center !important;
+            justify-content: space-between !important;
+            padding: 12px 16px 10px 16px !important;
+            border-bottom: 1px solid #f1f5f9 !important;
+        }
+        html.dark .haraj-modal-header {
+            border-bottom-color: #262626 !important;
+        }
+        .haraj-modal-title {
+            display: flex !important;
+            align-items: center !important;
+            gap: 8px !important;
+            font-size: 14px !important;
+            font-weight: 700 !important;
+            color: #0066cc !important;
+        }
+        .haraj-plus-badge {
+            background: rgba(0, 102, 204, 0.1) !important;
+            color: #0066cc !important;
+            font-size: 10px !important;
+            padding: 2px 6px !important;
+            border-radius: 6px !important;
+            font-weight: 600 !important;
+        }
+        .haraj-modal-close {
+            background: transparent !important;
+            border: none !important;
             font-size: 20px !important;
-            color: white !important;
+            line-height: 1 !important;
+            color: #94a3b8 !important;
+            cursor: pointer !important;
+            padding: 4px !important;
+            border-radius: 6px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+        }
+        .haraj-modal-close:hover {
+            color: #0f172a !important;
+            background: #f1f5f9 !important;
+        }
+        html.dark .haraj-modal-close:hover {
+            color: #f8fafc !important;
+            background: #2a2a2a !important;
+        }
+
+        /* Modal Body */
+        .haraj-modal-body {
+            padding: 14px 16px !important;
+        }
+
+        /* Action Buttons Grid: تحديث & اعلاناتي */
+        .haraj-action-grid {
+            display: grid !important;
+            grid-template-columns: 1fr 1fr !important;
+            gap: 10px !important;
+            margin-bottom: 12px !important;
+        }
+        .haraj-btn-primary {
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            gap: 6px !important;
+            padding: 12px 10px !important;
+            background: #0066cc !important;
+            color: #ffffff !important;
+            border: none !important;
+            border-radius: 10px !important;
+            font-size: 13px !important;
+            font-weight: 700 !important;
+            cursor: pointer !important;
+            box-shadow: 0 3px 10px rgba(0, 102, 204, 0.25) !important;
+            transition: all 0.18s ease !important;
             -webkit-tap-highlight-color: transparent !important;
-            transition: transform 0.2s ease !important;
-            touch-action: none !important;
+        }
+        .haraj-btn-primary:active {
+            transform: scale(0.96) !important;
+        }
+        .haraj-btn-primary.is-running {
+            background: #ef4444 !important;
+            box-shadow: 0 3px 10px rgba(239, 68, 68, 0.3) !important;
+        }
+        .haraj-btn-primary:disabled {
+            opacity: 0.6 !important;
+            cursor: not-allowed !important;
+        }
+
+        .haraj-btn-secondary {
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            gap: 6px !important;
+            padding: 12px 10px !important;
+            background: #f8fafc !important;
+            color: #1e293b !important;
+            border: 1px solid #e2e8f0 !important;
+            border-radius: 10px !important;
+            font-size: 13px !important;
+            font-weight: 700 !important;
+            cursor: pointer !important;
+            transition: all 0.18s ease !important;
+            -webkit-tap-highlight-color: transparent !important;
+        }
+        html.dark .haraj-btn-secondary {
+            background: #242526 !important;
+            color: #f1f5f9 !important;
+            border-color: #383838 !important;
+        }
+        .haraj-btn-secondary:active {
+            transform: scale(0.96) !important;
+            background: #e2e8f0 !important;
+        }
+        html.dark .haraj-btn-secondary:active {
+            background: #333333 !important;
+        }
+
+        /* Batch Speed Selector */
+        .haraj-batch-row {
+            display: flex !important;
+            align-items: center !important;
+            justify-content: space-between !important;
+            background: #f1f5f9 !important;
+            border-radius: 8px !important;
+            padding: 3px !important;
+            margin-bottom: 12px !important;
+        }
+        html.dark .haraj-batch-row {
+            background: #242526 !important;
+        }
+        .haraj-batch-btn {
+            flex: 1 !important;
+            padding: 5px 0 !important;
+            border: none !important;
+            background: transparent !important;
+            color: #64748b !important;
+            border-radius: 6px !important;
+            font-size: 10px !important;
+            font-weight: 600 !important;
+            cursor: pointer !important;
+            transition: all 0.15s ease !important;
+            text-align: center !important;
+        }
+        .haraj-batch-btn.active {
+            background: #ffffff !important;
+            color: #0066cc !important;
+            font-weight: 700 !important;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08) !important;
+        }
+        html.dark .haraj-batch-btn.active {
+            background: #333333 !important;
+            color: #38bdf8 !important;
+        }
+
+        /* Stats Row */
+        .haraj-stats-grid {
+            display: grid !important;
+            grid-template-columns: repeat(4, 1fr) !important;
+            gap: 6px !important;
+            margin-bottom: 10px !important;
+        }
+        .haraj-stat-card {
+            background: #f8fafc !important;
+            border: 1px solid #f1f5f9 !important;
+            border-radius: 8px !important;
+            padding: 6px 2px !important;
+            text-align: center !important;
+        }
+        html.dark .haraj-stat-card {
+            background: #242526 !important;
+            border-color: #303030 !important;
+        }
+        .haraj-stat-val {
+            font-size: 14px !important;
+            font-weight: 800 !important;
+            color: #0066cc !important;
+            display: block !important;
+            line-height: 1.2 !important;
+        }
+        .haraj-stat-lbl {
+            font-size: 9px !important;
+            color: #64748b !important;
+            font-weight: 600 !important;
+        }
+
+        /* Progress Bar */
+        .haraj-progress-track {
+            width: 100% !important;
+            height: 4px !important;
+            background: #e2e8f0 !important;
+            border-radius: 2px !important;
+            overflow: hidden !important;
+            margin-bottom: 12px !important;
+        }
+        html.dark .haraj-progress-track {
+            background: #333333 !important;
+        }
+        .haraj-progress-fill {
+            height: 100% !important;
+            width: 0% !important;
+            background: #0066cc !important;
+            transition: width 0.3s ease !important;
+        }
+
+        /* Token Warning & Relogin Button */
+        .haraj-token-warning {
+            display: none;
+            background: #fef2f2 !important;
+            border: 1px solid #fecaca !important;
+            color: #dc2626 !important;
+            font-size: 11px !important;
+            font-weight: 600 !important;
+            padding: 8px 10px !important;
+            border-radius: 8px !important;
+            margin-bottom: 10px !important;
+            text-align: center !important;
+        }
+        .haraj-token-warning.show {
+            display: block !important;
+        }
+        .haraj-relogin-btn {
+            display: none;
+            width: 100% !important;
+            padding: 8px !important;
+            background: #ef4444 !important;
+            color: #ffffff !important;
+            border: none !important;
+            border-radius: 8px !important;
+            font-size: 11px !important;
+            font-weight: 700 !important;
+            cursor: pointer !important;
+            margin-bottom: 10px !important;
+            text-align: center !important;
+        }
+        .haraj-relogin-btn.show {
+            display: block !important;
+        }
+
+        /* Expandable Debug Log Accordion */
+        .haraj-log-accordion {
+            border: 1px solid #e2e8f0 !important;
+            border-radius: 10px !important;
+            overflow: hidden !important;
+            background: #ffffff !important;
+        }
+        html.dark .haraj-log-accordion {
+            border-color: #333333 !important;
+            background: #18191a !important;
+        }
+        .haraj-log-toggle {
+            display: flex !important;
+            align-items: center !important;
+            justify-content: space-between !important;
+            padding: 8px 12px !important;
+            background: #f8fafc !important;
+            cursor: pointer !important;
             user-select: none !important;
+            transition: background 0.15s ease !important;
         }
-        .ai-helper-btn:active {
-            transform: scale(0.9) !important;
+        html.dark .haraj-log-toggle {
+            background: #242526 !important;
         }
-        
-        #ai-chat-panel {
+        .haraj-log-toggle:hover {
+            background: #f1f5f9 !important;
+        }
+        html.dark .haraj-log-toggle:hover {
+            background: #2a2a2a !important;
+        }
+        .haraj-log-toggle-left {
+            display: flex !important;
+            align-items: center !important;
+            gap: 6px !important;
+            font-size: 11px !important;
+            font-weight: 600 !important;
+            color: #475569 !important;
+        }
+        html.dark .haraj-log-toggle-left {
+            color: #cbd5e1 !important;
+        }
+        .haraj-log-arrow {
+            display: inline-block !important;
+            font-size: 9px !important;
+            transition: transform 0.2s ease !important;
+            color: #0066cc !important;
+        }
+        .haraj-log-arrow.expanded {
+            transform: rotate(90deg) !important;
+        }
+        .haraj-log-count-pill {
+            background: #e2e8f0 !important;
+            color: #475569 !important;
+            font-size: 9px !important;
+            font-weight: 700 !important;
+            padding: 1px 6px !important;
+            border-radius: 10px !important;
+        }
+        html.dark .haraj-log-count-pill {
+            background: #383838 !important;
+            color: #94a3b8 !important;
+        }
+        .haraj-log-collapse-body {
+            max-height: 0 !important;
+            overflow: hidden !important;
+            opacity: 0 !important;
+            transition: max-height 0.25s ease, opacity 0.2s ease !important;
+        }
+        .haraj-log-collapse-body.expanded {
+            max-height: 140px !important;
+            opacity: 1 !important;
+            overflow-y: auto !important;
+            border-top: 1px solid #e2e8f0 !important;
+        }
+        html.dark .haraj-log-collapse-body.expanded {
+            border-top-color: #333333 !important;
+        }
+        .haraj-log-console {
+            padding: 8px !important;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+            font-size: 9px !important;
+            line-height: 1.4 !important;
+            background: #fafafa !important;
+        }
+        html.dark .haraj-log-console {
+            background: #121212 !important;
+        }
+        .haraj-log-item {
+            padding: 3px 6px !important;
+            margin-bottom: 3px !important;
+            border-radius: 4px !important;
+            border-right: 2px solid transparent !important;
+            word-break: break-all !important;
+        }
+        .haraj-log-item.success {
+            background: #f0fdf4 !important;
+            color: #166534 !important;
+            border-right-color: #22c55e !important;
+        }
+        html.dark .haraj-log-item.success {
+            background: rgba(34, 197, 94, 0.15) !important;
+            color: #86efac !important;
+        }
+        .haraj-log-item.error {
+            background: #fef2f2 !important;
+            color: #991b1b !important;
+            border-right-color: #ef4444 !important;
+        }
+        html.dark .haraj-log-item.error {
+            background: rgba(239, 68, 68, 0.15) !important;
+            color: #fca5a5 !important;
+        }
+        .haraj-log-item.info {
+            background: #f0f9ff !important;
+            color: #075985 !important;
+            border-right-color: #0284c7 !important;
+        }
+        html.dark .haraj-log-item.info {
+            background: rgba(2, 132, 199, 0.15) !important;
+            color: #7dd3fc !important;
+        }
+        .haraj-log-time {
+            opacity: 0.65 !important;
+            margin-left: 4px !important;
+            font-size: 8px !important;
+        }
+
+        /* AI Helper Floating button & panel (Ad description refinement) */
+        .haraj-ai-helper-btn {
             position: fixed !important;
-            bottom: 60px !important;
-            left: 8px !important;
-            width: calc(100vw - 16px) !important;
-            max-width: 360px !important;
-            max-height: 70vh !important;
-            background: linear-gradient(145deg, #10b981 0%, #059669 100%) !important;
-            border-radius: 12px !important;
-            box-shadow: 0 8px 30px rgba(0,0,0,0.6) !important;
-            z-index: 999998 !important;
-            display: none !important;
-            flex-direction: column !important;
-            border: 2px solid rgba(255,255,255,0.2) !important;
-            color: white !important;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+            bottom: 75px !important;
+            left: 16px !important;
+            width: 42px !important;
+            height: 42px !important;
+            background: #0066cc !important;
+            color: #ffffff !important;
+            border-radius: 50% !important;
+            box-shadow: 0 4px 14px rgba(0, 102, 204, 0.35) !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            font-size: 18px !important;
+            cursor: pointer !important;
+            z-index: 999992 !important;
+            border: 2px solid #ffffff !important;
         }
-        #ai-chat-panel.show {
+        #haraj-ai-chat-panel {
+            position: fixed !important;
+            bottom: 70px !important;
+            left: 16px !important;
+            width: calc(100vw - 32px) !important;
+            max-width: 340px !important;
+            max-height: 65vh !important;
+            background: #ffffff !important;
+            border-radius: 14px !important;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25) !important;
+            z-index: 999996 !important;
+            display: none;
+            flex-direction: column !important;
+            border: 1px solid #e2e8f0 !important;
+            font-family: inherit !important;
+            color: #0f172a !important;
+            direction: rtl !important;
+            overflow: hidden !important;
+        }
+        html.dark #haraj-ai-chat-panel {
+            background: #18191a !important;
+            color: #f8fafc !important;
+            border-color: #333333 !important;
+        }
+        #haraj-ai-chat-panel.show {
             display: flex !important;
         }
-        
-        .ai-chat-header {
-            background: rgba(0,0,0,0.3) !important;
-            padding: 10px 12px !important;
-            border-radius: 10px 10px 0 0 !important;
-            border-bottom: 2px solid rgba(255,255,255,0.15) !important;
+        .haraj-ai-header {
+            background: #0066cc !important;
+            color: #ffffff !important;
+            padding: 8px 12px !important;
             display: flex !important;
             justify-content: space-between !important;
             align-items: center !important;
-            cursor: move !important;
-            touch-action: none !important;
-            -webkit-user-select: none !important;
-            user-select: none !important;
-        }
-        .ai-chat-header h4 {
-            margin: 0 !important;
-            font-size: 13px !important;
+            font-size: 12px !important;
             font-weight: 700 !important;
-            color: white !important;
         }
-        .ai-close-btn {
-            background: rgba(255,255,255,0.2) !important;
-            border: none !important;
-            color: white !important;
-            width: 24px !important;
-            height: 24px !important;
-            border-radius: 4px !important;
-            cursor: pointer !important;
-            font-size: 16px !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-        }
-        
-        .ai-chat-messages {
+        .haraj-ai-messages {
             flex: 1 !important;
             overflow-y: auto !important;
             padding: 10px !important;
-            direction: rtl !important;
-        }
-        .ai-chat-messages::-webkit-scrollbar { width: 6px !important; }
-        .ai-chat-messages::-webkit-scrollbar-track { background: rgba(0,0,0,0.2) !important; }
-        .ai-chat-messages::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.3) !important; border-radius: 3px !important; }
-        
-        .ai-message {
-            margin-bottom: 8px !important;
-            padding: 8px 10px !important;
-            border-radius: 8px !important;
             font-size: 11px !important;
-            line-height: 1.4 !important;
-            word-wrap: break-word !important;
         }
-        .ai-message.user {
-            background: rgba(255,255,255,0.25) !important;
-            margin-left: 30px !important;
-        }
-        .ai-message.assistant {
-            background: rgba(0,0,0,0.3) !important;
-            margin-right: 30px !important;
-        }
-        .ai-message.system {
-            background: rgba(59,130,246,0.3) !important;
-            text-align: center !important;
-            font-size: 10px !important;
-            font-style: italic !important;
-        }
-        
-        .ai-preview-box {
-            background: rgba(0,0,0,0.4) !important;
-            border: 2px solid rgba(255,255,255,0.2) !important;
+        .haraj-ai-msg {
+            margin-bottom: 6px !important;
+            padding: 6px 8px !important;
             border-radius: 6px !important;
-            padding: 8px !important;
-            margin: 8px 0 !important;
-            max-height: 120px !important;
-            overflow-y: auto !important;
+            line-height: 1.4 !important;
+        }
+        .haraj-ai-msg.user { background: #f1f5f9 !important; color: #1e293b !important; }
+        html.dark .haraj-ai-msg.user { background: #262626 !important; color: #f8fafc !important; }
+        .haraj-ai-msg.assistant { background: rgba(0, 102, 204, 0.1) !important; color: #0066cc !important; }
+        .haraj-ai-preview-box {
+            background: #fafafa !important;
+            border: 1px solid #cbd5e1 !important;
+            border-radius: 6px !important;
+            padding: 6px !important;
+            margin: 6px 0 !important;
             font-size: 10px !important;
             white-space: pre-wrap !important;
-            direction: rtl !important;
+            max-height: 100px !important;
+            overflow-y: auto !important;
         }
-        
-        .ai-action-btns {
-            display: flex !important;
-            gap: 6px !important;
-            margin-top: 6px !important;
+        html.dark .haraj-ai-preview-box { background: #121212 !important; border-color: #383838 !important; }
+        .haraj-ai-actions { display: flex !important; gap: 6px !important; margin-top: 4px !important; }
+        .haraj-ai-act-btn {
+            flex: 1 !important; padding: 5px !important; border-radius: 4px !important;
+            border: none !important; font-size: 10px !important; font-weight: 700 !important; cursor: pointer !important;
         }
-        .ai-action-btn {
-            flex: 1 !important;
-            padding: 6px !important;
-            border: none !important;
-            border-radius: 5px !important;
-            font-size: 10px !important;
-            font-weight: 700 !important;
-            cursor: pointer !important;
-            color: white !important;
-            -webkit-tap-highlight-color: transparent !important;
+        .haraj-ai-act-btn.accept { background: #16a34a !important; color: #fff !important; }
+        .haraj-ai-act-btn.decline { background: #ef4444 !important; color: #fff !important; }
+        .haraj-ai-input-wrap { display: flex !important; gap: 4px !important; padding: 6px !important; border-top: 1px solid #e2e8f0 !important; }
+        html.dark .haraj-ai-input-wrap { border-top-color: #333333 !important; }
+        .haraj-ai-input {
+            flex: 1 !important; padding: 6px 8px !important; border-radius: 6px !important;
+            border: 1px solid #cbd5e1 !important; font-size: 11px !important; outline: none !important;
         }
-        .ai-action-btn.accept {
-            background: rgba(16,185,129,0.8) !important;
-        }
-        .ai-action-btn.decline {
-            background: rgba(239,68,68,0.8) !important;
-        }
-        .ai-action-btn:active {
-            transform: scale(0.95) !important;
-        }
-        
-        .ai-chat-input-area {
-            padding: 8px !important;
-            background: rgba(0,0,0,0.2) !important;
-            border-radius: 0 0 10px 10px !important;
-        }
-        .ai-input-wrapper {
-            display: flex !important;
-            gap: 6px !important;
-        }
-        .ai-chat-input {
-            flex: 1 !important;
-            background: rgba(255,255,255,0.2) !important;
-            border: 1px solid rgba(255,255,255,0.3) !important;
-            border-radius: 6px !important;
-            padding: 8px !important;
-            color: white !important;
-            font-size: 11px !important;
-            outline: none !important;
-            direction: rtl !important;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
-        }
-        .ai-chat-input::placeholder {
-            color: rgba(255,255,255,0.6) !important;
-        }
-        .ai-send-btn {
-            width: 40px !important;
-            height: 40px !important;
-            background: rgba(255,255,255,0.25) !important;
-            border: none !important;
-            border-radius: 6px !important;
-            color: white !important;
-            font-size: 18px !important;
-            cursor: pointer !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            -webkit-tap-highlight-color: transparent !important;
-        }
-        .ai-send-btn:active {
-            background: rgba(255,255,255,0.4) !important;
-            transform: scale(0.9) !important;
-        }
-        .ai-send-btn:disabled {
-            opacity: 0.4 !important;
-            cursor: not-allowed !important;
+        html.dark .haraj-ai-input { background: #262626 !important; border-color: #404040 !important; color: #fff !important; }
+        .haraj-ai-send {
+            padding: 6px 12px !important; background: #0066cc !important; color: #fff !important;
+            border: none !important; border-radius: 6px !important; cursor: pointer !important; font-weight: 700 !important;
         }
     `);
 
-    function createMenu() {
-        // Create toggle button
-        const toggleBtn = document.createElement('div');
-        toggleBtn.id = 'haraj-toggle-btn';
-        toggleBtn.innerHTML = '🔄';
-        document.body.appendChild(toggleBtn);
-        
-        // Create menu
-        const menu = document.createElement('div');
-        menu.id = 'haraj-menu';
-        menu.innerHTML = `
-            <div id="haraj-header">
-                <h3>🔄 محدث حراج <span class="version-badge">v${VERSION}</span></h3>
-                <button class="minimize-btn">−</button>
+    // Create the Popup Modal (Starts hidden!)
+    function createModal() {
+        if (document.getElementById('haraj-plus-modal')) return;
+
+        const modal = document.createElement('div');
+        modal.id = 'haraj-plus-modal';
+        modal.innerHTML = `
+            <div class="haraj-modal-header">
+                <div class="haraj-modal-title">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="8" x2="12" y2="16"></line>
+                        <line x1="8" y1="12" x2="16" y2="12"></line>
+                    </svg>
+                    <span>${I18N.title}</span>
+                    <span class="haraj-plus-badge">v${VERSION}</span>
+                </div>
+                <button class="haraj-modal-close" id="haraj-modal-close" title="إغلاق">×</button>
             </div>
-            <div id="haraj-content">
-                <div class="token-warning" id="token-warning">⚠️ انتهت الجلسة - مشكلة من السيرفر</div>
-                <button class="btn-relogin" id="relogin-btn">🔄 إعادة تسجيل الدخول</button>
-                <div class="speed-control">
-                    <button class="speed-btn" data-speed="3">3 دفعة</button>
-                    <button class="speed-btn active" data-speed="6">6 دفعة</button>
-                    <button class="speed-btn" data-speed="12">12 دفعة</button>
+            <div class="haraj-modal-body">
+                <div class="haraj-token-warning" id="token-warning">${I18N.sessionWarning}</div>
+                <button class="haraj-relogin-btn" id="relogin-btn">${I18N.relogin}</button>
+
+                <!-- 2 Main Actions: تحديث & اعلاناتي -->
+                <div class="haraj-action-grid">
+                    <button class="haraj-btn-primary" id="update-btn">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="23 4 23 10 17 10"></polyline>
+                            <polyline points="1 20 1 14 7 14"></polyline>
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                        </svg>
+                        <span id="update-btn-text">${I18N.update}</span>
+                    </button>
+                    <button class="haraj-btn-secondary" id="myads-btn">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                            <polyline points="10 9 9 9 8 9"></polyline>
+                        </svg>
+                        <span>${I18N.myAds}</span>
+                    </button>
                 </div>
-                <div class="btn-grid-full">
-                    <button class="haraj-btn btn-start" id="update-btn">▶️ تحديث</button>
+
+                <!-- Batch Speed Toggle -->
+                <div class="haraj-batch-row">
+                    <button class="haraj-batch-btn ${CONFIG.adsPerBatch === 3 ? 'active' : ''}" data-speed="3">3 ${I18N.batch}</button>
+                    <button class="haraj-batch-btn ${CONFIG.adsPerBatch === 6 ? 'active' : ''}" data-speed="6">6 ${I18N.batch}</button>
+                    <button class="haraj-batch-btn ${CONFIG.adsPerBatch === 12 ? 'active' : ''}" data-speed="12">12 ${I18N.batch}</button>
                 </div>
-                <div class="btn-grid-full">
-                    <button class="haraj-btn btn-myads" id="myads-btn">📋 اعلاناتي</button>
+
+                <!-- Live Statistics -->
+                <div class="haraj-stats-grid">
+                    <div class="haraj-stat-card">
+                        <span class="haraj-stat-val" id="stat-total">0</span>
+                        <span class="haraj-stat-lbl">${I18N.total}</span>
+                    </div>
+                    <div class="haraj-stat-card">
+                        <span class="haraj-stat-val" id="stat-updated" style="color:#16a34a !important;">0</span>
+                        <span class="haraj-stat-lbl">${I18N.updated}</span>
+                    </div>
+                    <div class="haraj-stat-card">
+                        <span class="haraj-stat-val" id="stat-failed" style="color:#dc2626 !important;">0</span>
+                        <span class="haraj-stat-lbl">${I18N.failed}</span>
+                    </div>
+                    <div class="haraj-stat-card">
+                        <span class="haraj-stat-val" id="stat-remaining" style="color:#64748b !important;">0</span>
+                        <span class="haraj-stat-lbl">${I18N.remaining}</span>
+                    </div>
                 </div>
-                <div class="btn-grid">
-                    <button class="haraj-btn btn-like" id="like-btn" disabled>❤️ تفضيل</button>
-                    <button class="haraj-btn btn-stop" id="stop-btn" disabled>⏸️ إيقاف</button>
+
+                <!-- Progress Bar -->
+                <div class="haraj-progress-track">
+                    <div class="haraj-progress-fill" id="progress"></div>
                 </div>
-                <div class="stats">
-                    <div class="stat"><span class="stat-value" id="stat-total">0</span><span class="stat-label">إجمالي</span></div>
-                    <div class="stat"><span class="stat-value" id="stat-updated">0</span><span class="stat-label">محدث</span></div>
-                    <div class="stat"><span class="stat-value" id="stat-failed">0</span><span class="stat-label">فشل</span></div>
-                    <div class="stat"><span class="stat-value" id="stat-remaining">0</span><span class="stat-label">متبقي</span></div>
+
+                <!-- Collapsible Debug Log with Arrow -->
+                <div class="haraj-log-accordion">
+                    <div class="haraj-log-toggle" id="haraj-log-toggle">
+                        <div class="haraj-log-toggle-left">
+                            <span class="haraj-log-arrow" id="haraj-log-arrow">▶</span>
+                            <span>${I18N.logTitle}</span>
+                        </div>
+                        <span class="haraj-log-count-pill" id="haraj-log-count">0</span>
+                    </div>
+                    <div class="haraj-log-collapse-body" id="haraj-log-body">
+                        <div class="haraj-log-console" id="log"></div>
+                    </div>
                 </div>
-                <div class="progress"><div class="progress-bar" id="progress"></div></div>
-                <div class="log" id="log"></div>
             </div>
         `;
-        document.body.appendChild(menu);
-        
-        // Make menu draggable from anywhere on it (buttons, inputs, and the log stay tappable/scrollable)
-        makeDraggable(menu, menu);
-        
-        // Make toggle button draggable
-        makeDraggable(toggleBtn, toggleBtn);
-        
-        // Minimize button handler
-        const minimizeBtn = menu.querySelector('.minimize-btn');
-        minimizeBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            menu.classList.add('minimized');
-            toggleBtn.classList.add('show');
-            // Sync positions
-            toggleBtn.style.top = menu.style.top || '8px';
-            toggleBtn.style.left = menu.style.left || 'auto';
-            toggleBtn.style.right = menu.style.right || '8px';
-        });
-        
-        // Toggle button handler - show menu
-        toggleBtn.addEventListener('click', (e) => {
-            menu.classList.remove('minimized');
-            toggleBtn.classList.remove('show');
-        });
-        
+        document.body.appendChild(modal);
+
+        // Bind events inside modal
+        document.getElementById('haraj-modal-close').onclick = toggleModal;
+        document.getElementById('update-btn').onclick = handleUpdateClick;
+        document.getElementById('myads-btn').onclick = openMyAds;
         document.getElementById('relogin-btn').onclick = () => window.location.href = 'https://haraj.com.sa/login';
-        
-        document.querySelectorAll('.speed-btn').forEach(btn => {
+
+        // Speed buttons
+        modal.querySelectorAll('.haraj-batch-btn').forEach(btn => {
             btn.onclick = () => {
                 const speed = parseInt(btn.getAttribute('data-speed'));
                 CONFIG.adsPerBatch = speed;
                 GM_setValue('adsPerBatch', speed);
-                document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
+                modal.querySelectorAll('.haraj-batch-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
-                addLog('info', `⚡ السرعة: ${speed} لكل دفعة`);
+                addLog('info', `⚡ ${I18N.batch}: ${speed}`);
             };
         });
-        
-        document.getElementById('update-btn').onclick = loadAndUpdate;
-        document.getElementById('myads-btn').onclick = openMyAds;
-        document.getElementById('like-btn').onclick = likeAll;
-        document.getElementById('stop-btn').onclick = stop;
-        
-        addLog('info', `🚀 محدث حراج v${VERSION} جاهز!`);
-    }
 
-    function shouldIgnoreDragTarget(target) {
-        if (!target) return false;
-        if (target.tagName === 'BUTTON' || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return true;
-        if (target.closest && target.closest('.log')) return true;
-        return false;
-    }
+        // Debug Log Accordion Toggle
+        const logToggle = document.getElementById('haraj-log-toggle');
+        const logArrow = document.getElementById('haraj-log-arrow');
+        const logBody = document.getElementById('haraj-log-body');
 
-    function makeDraggable(el, dragHandle) {
-        const handle = dragHandle || el;
-        let startX = 0, startY = 0, startLeft = 0, startTop = 0;
-        let dragging = false;
-        let activePointerId = null;
+        logToggle.onclick = () => {
+            const isExpanded = logBody.classList.contains('expanded');
+            if (isExpanded) {
+                logBody.classList.remove('expanded');
+                logArrow.classList.remove('expanded');
+            } else {
+                logBody.classList.add('expanded');
+                logArrow.classList.add('expanded');
+            }
+        };
 
-        handle.style.touchAction = 'none';
-
-        handle.addEventListener('pointerdown', function(e) {
-            // Don't drag if touching a button, input, or the scrollable log
-            if (shouldIgnoreDragTarget(e.target)) return;
-            // Only respond to the primary mouse button
-            if (e.pointerType === 'mouse' && e.button !== 0) return;
-
-            dragging = true;
-            activePointerId = e.pointerId;
-            startX = e.clientX;
-            startY = e.clientY;
-            const rect = el.getBoundingClientRect();
-            startLeft = rect.left;
-            startTop = rect.top;
-
-            try { handle.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
-            e.preventDefault();
+        // Close when clicking outside modal
+        document.addEventListener('click', (e) => {
+            const navBtn = document.getElementById('haraj-plus-nav-btn');
+            const desktopBtn = document.getElementById('haraj-plus-desktop-btn');
+            if (!modal.contains(e.target) && (!navBtn || !navBtn.contains(e.target)) && (!desktopBtn || !desktopBtn.contains(e.target))) {
+                if (modal.classList.contains('show')) {
+                    toggleModal(false);
+                }
+            }
         });
 
-        handle.addEventListener('pointermove', function(e) {
-            if (!dragging || e.pointerId !== activePointerId) return;
-            e.preventDefault();
+        addLog('info', I18N.ready);
+    }
 
-            const dx = e.clientX - startX;
-            const dy = e.clientY - startY;
+    // Toggle Modal visibility
+    function toggleModal(forceState) {
+        const modal = document.getElementById('haraj-plus-modal');
+        const navBtn = document.getElementById('haraj-plus-nav-btn');
+        if (!modal) return;
 
-            let newLeft = startLeft + dx;
-            let newTop = startTop + dy;
+        const isCurrentlyShown = modal.classList.contains('show');
+        const shouldShow = (typeof forceState === 'boolean') ? forceState : !isCurrentlyShown;
 
-            // Keep within viewport
-            newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - el.offsetWidth));
-            newTop = Math.max(0, Math.min(newTop, window.innerHeight - el.offsetHeight));
-
-            el.style.left = newLeft + "px";
-            el.style.top = newTop + "px";
-            el.style.right = "auto";
-            el.style.bottom = "auto";
-        });
-
-        function endDrag(e) {
-            if (e.pointerId !== activePointerId) return;
-            dragging = false;
-            activePointerId = null;
-            try { handle.releasePointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+        if (shouldShow) {
+            modal.classList.add('show');
+            if (navBtn) navBtn.classList.add('active');
+        } else {
+            modal.classList.remove('show');
+            if (navBtn) navBtn.classList.remove('active');
         }
-
-        handle.addEventListener('pointerup', endDrag);
-        handle.addEventListener('pointercancel', endDrag);
     }
 
+    // Find Haraj's bottom navigation bar
+    function findBottomNav() {
+        return document.querySelector('div.fixed.bottom-0[class*="h-[60px]"]') ||
+               document.querySelector('div.fixed.bottom-0:has(a[data-testid="home"])') ||
+               document.querySelector('a[data-testid="msgs"]')?.closest('div.fixed.bottom-0') ||
+               document.querySelector('a[data-testid="home"]')?.parentElement;
+    }
+
+    // Inject the Plus / بلس button into the bottom navigation bar
+    function injectNavButton() {
+        const bottomNav = findBottomNav();
+        const desktopBtn = document.getElementById('haraj-plus-desktop-btn');
+
+        if (bottomNav) {
+            if (desktopBtn) desktopBtn.style.display = 'none';
+
+            // Check if already injected
+            if (document.getElementById('haraj-plus-nav-btn')) return;
+
+            const plusItem = document.createElement('a');
+            plusItem.id = 'haraj-plus-nav-btn';
+            plusItem.className = 'haraj-plus-nav-item';
+            plusItem.setAttribute('role', 'button');
+            plusItem.setAttribute('tabindex', '0');
+            plusItem.setAttribute('data-testid', 'haraj_plus');
+            plusItem.style.transform = 'translate3d(0px, 0px, 0px)';
+
+            plusItem.innerHTML = `
+                <span class="haraj-plus-nav-icon">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"></circle>
+                        <line x1="12" y1="8" x2="12" y2="16"></line>
+                        <line x1="8" y1="12" x2="16" y2="12"></line>
+                    </svg>
+                </span>
+                <div class="haraj-plus-nav-label">${I18N.plus}</div>
+            `;
+
+            plusItem.onclick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                toggleModal();
+            };
+
+            // Place as the last item or next to messages
+            bottomNav.appendChild(plusItem);
+        } else {
+            // Desktop fallback trigger
+            let trigger = document.getElementById('haraj-plus-desktop-btn');
+            if (!trigger) {
+                trigger = document.createElement('div');
+                trigger.id = 'haraj-plus-desktop-btn';
+                trigger.innerHTML = `
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                `;
+                trigger.title = I18N.title;
+                trigger.onclick = (e) => {
+                    e.stopPropagation();
+                    toggleModal();
+                };
+                document.body.appendChild(trigger);
+            }
+            trigger.style.display = 'flex';
+        }
+    }
+
+    // Token & Auth extraction
     function getAuthState() {
-        // The site's persisted auth store key name — try 'login' first (confirmed),
-        // with a couple of fallbacks in case it changes again.
         const candidateKeys = ['login', 'statlogin', 'auth'];
         for (const key of candidateKeys) {
             try {
@@ -584,45 +890,35 @@
                 if (parsed?.state?.accessToken || parsed?.state?.username) {
                     return parsed.state;
                 }
-            } catch (e) {
-                // ignore and try next key
-            }
+            } catch (e) {}
         }
         return null;
     }
 
     function extractToken() {
-        // Primary source: accessToken lives inside the persisted 'login' store now
         const authState = getAuthState();
         if (authState?.accessToken) {
             const parts = authState.accessToken.split('.');
             if (parts.length === 3) {
                 CONFIG.token = authState.accessToken;
-                addLog('success', '✓ تم استخراج التوكن من الجلسة');
+                addLog('success', isAr ? '✓ تم استخراج التوكن من الجلسة' : '✓ Extracted token from session');
             }
         }
-        
-        // Extract CLIENT_ID from localStorage meta
+
         try {
             const meta = localStorage.getItem('meta');
             if (meta) {
                 const parsed = JSON.parse(meta);
                 if (parsed.state?.clientId) {
                     CONFIG.clientId = parsed.state.clientId;
-                    addLog('info', `✓ CLIENT_ID: ${CONFIG.clientId.substring(0, 15)}...`);
                 }
             }
-        } catch (e) {
-            console.error('Failed to extract clientId from meta:', e);
-        }
-        
-        // Fallback to default if not found
+        } catch (e) {}
+
         if (!CONFIG.clientId) {
             CONFIG.clientId = '0hxR2sjN-VMMr-QtoI-Sydi-xHqrb6O2M0T8v3';
-            addLog('warning', '⚠ استخدام CLIENT_ID الافتراضي');
         }
-        
-        // Fallback: only check the cookie if getAuthState() didn't give us a token
+
         if (!CONFIG.token) {
             const cookieString = document.cookie;
             const accessTokenMatch = cookieString.match(/accessToken=([^;]+)/);
@@ -631,16 +927,16 @@
                 const parts = token.split('.');
                 if (parts.length === 3) {
                     CONFIG.token = token;
-                    addLog('success', '✓ تم استخراج التوكن من الكوكيز');
+                    addLog('success', isAr ? '✓ تم استخراج التوكن من الكوكيز' : '✓ Extracted token from cookies');
                 }
             }
         }
-        
+
         if (!CONFIG.token) {
-            addLog('error', '✗ فشل استخراج التوكن');
+            addLog('error', isAr ? '✗ فشل استخراج التوكن - يرجى تسجيل الدخول' : '✗ Failed to extract token - please log in');
             return false;
         }
-        
+
         return true;
     }
 
@@ -652,38 +948,33 @@
     function openMyAds() {
         const username = getMyUsername();
         if (username) {
-            addLog('info', `فتح إعلاناتي: ${username}`);
-            window.location.href = `https://haraj.com.sa/en/users/${username}`;
+            addLog('info', `${isAr ? 'فتح إعلاناتي' : 'Opening ads'}: ${username}`);
+            window.location.href = `https://haraj.com.sa/users/${username}`;
         } else {
-            addLog('error', 'لم يتم العثور على اسم المستخدم - سجل الدخول أولاً');
+            addLog('error', isAr ? 'لم يتم العثور على اسم المستخدم - سجل الدخول أولاً' : 'Username not found - please log in first');
         }
     }
 
+    // Load posts from page
     async function loadPosts() {
-        addLog('info', 'جاري تحميل الإعلانات...');
-        document.getElementById('update-btn').disabled = true;
-        
+        addLog('info', isAr ? 'جاري فحص الإعلانات في الصفحة...' : 'Scanning ads on page...');
+        const updateBtn = document.getElementById('update-btn');
+        if (updateBtn) updateBtn.disabled = true;
+
         let previousCount = 0;
         for (let i = 0; i < 50; i++) {
             window.scrollTo(0, document.body.scrollHeight);
-            await sleep(1000);
+            await sleep(900);
             const loadMoreBtn = document.querySelector('[data-testid="posts-load-more"]');
             if (loadMoreBtn && !loadMoreBtn.disabled) loadMoreBtn.click();
             const currentCount = document.querySelectorAll('[data-test-postid]').length;
             if (currentCount === previousCount) break;
             previousCount = currentCount;
         }
-        
+
         window.scrollTo(0, 0);
         collectPosts();
-        document.getElementById('update-btn').disabled = false;
-    }
-    
-    async function loadAndUpdate() {
-        await loadPosts();
-        if (postIds.length > 0) {
-            await startUpdating();
-        }
+        if (updateBtn) updateBtn.disabled = false;
     }
 
     function collectPosts() {
@@ -692,39 +983,55 @@
             const id = el.getAttribute('data-test-postid');
             if (id) postIds.push(parseInt(id));
         });
-        
+
         stats = { total: postIds.length, updated: 0, failed: 0 };
         currentIndex = 0;
         updateStats();
-        
+
         if (postIds.length > 0) {
-            addLog('success', `تم تحميل ${postIds.length} إعلان`);
-            document.getElementById('like-btn').disabled = false;
+            addLog('success', I18N.loadedAds.replace('%s', postIds.length));
         } else {
-            addLog('error', 'لم يتم العثور على إعلانات');
+            addLog('error', I18N.noAds);
+        }
+    }
+
+    function handleUpdateClick() {
+        if (isRunning) {
+            stopUpdating();
+        } else {
+            loadAndUpdate();
+        }
+    }
+
+    async function loadAndUpdate() {
+        await loadPosts();
+        if (postIds.length > 0) {
+            await startUpdating();
         }
     }
 
     async function startUpdating() {
         if (!extractToken()) {
-            addLog('error', 'فشل استخراج التوكن');
             return;
         }
-        
+
         hideTokenWarning();
         isRunning = true;
-        document.getElementById('update-btn').disabled = true;
-        document.getElementById('stop-btn').disabled = false;
-        document.getElementById('like-btn').disabled = true;
-        addLog('info', 'بدء التحديث...');
+
+        const updateBtn = document.getElementById('update-btn');
+        const updateBtnText = document.getElementById('update-btn-text');
+        if (updateBtn) updateBtn.classList.add('is-running');
+        if (updateBtnText) updateBtnText.textContent = I18N.stop;
+
+        addLog('info', isAr ? 'بدء التحديث المجدول...' : 'Starting batch update...');
         await updateBatch();
     }
 
     async function updateBatch() {
         if (!isRunning || currentIndex >= postIds.length) {
             if (currentIndex >= postIds.length) {
-                addLog('success', '✅ اكتمل التحديث!');
-                stop();
+                addLog('success', I18N.done);
+                stopUpdating();
             }
             return;
         }
@@ -741,8 +1048,8 @@
         if (isRunning && currentIndex < postIds.length) {
             setTimeout(() => updateBatch(), CONFIG.updateInterval);
         } else if (currentIndex >= postIds.length) {
-            addLog('success', '✅ اكتمل التحديث!');
-            stop();
+            addLog('success', I18N.done);
+            stopUpdating();
         }
     }
 
@@ -750,7 +1057,7 @@
         try {
             const lang = document.documentElement.lang || 'ar';
             const url = `${CONFIG.graphqlEndpoint}?queryName=updatePost&lang=${lang}&clientId=${CONFIG.clientId}&version=N0.0.1`;
-            
+
             const response = await fetch(url, {
                 method: 'POST',
                 headers: {
@@ -767,262 +1074,191 @@
             });
 
             const data = await response.json();
-            
+
             if (data.data?.updatePost?.status === true) {
                 stats.updated++;
-                addLog('success', `✓ #${id}`);
+                addLog('success', `✓ #${id} (Status: 200 OK)`);
                 tokenExpiredCount = 0;
             } else {
                 stats.failed++;
-                const reason = data.data?.updatePost?.notValidReason || 'فشل';
-                
+                const reason = data.data?.updatePost?.notValidReason || (data.errors ? data.errors[0]?.message : 'Error');
+
                 if (reason === 'لم يتم تسجيل الدخول') {
                     tokenExpiredCount++;
                     addLog('error', `✗ #${id}: جلسة منتهية (${tokenExpiredCount}/3)`);
                     if (tokenExpiredCount >= 3) {
-                        addLog('error', '🛑 مشكلة سيرفر - الجلسة منتهية');
-                        addLog('info', '💡 إعادة الدخول قد تحل المشكلة مؤقتاً');
+                        addLog('error', '🛑 استجابة السيرفر: الجلسة منتهية، يرجى تسجيل الدخول مجدداً');
                         showTokenWarning();
-                        stop();
+                        stopUpdating();
                     }
                 } else {
-                    addLog('error', `✗ #${id}: ${reason}`);
+                    addLog('error', `✗ #${id}: ${reason} [Server: ${JSON.stringify(data.data?.updatePost || data.errors || {})}]`);
                 }
             }
         } catch (error) {
             stats.failed++;
-            addLog('error', `✗ #${id}`);
+            addLog('error', `✗ #${id}: خطأ اتصال (${error.message})`);
         }
     }
-    
-    function showTokenWarning() {
-        document.getElementById('token-warning').classList.add('show');
-        document.getElementById('relogin-btn').classList.add('show');
+
+    function stopUpdating() {
+        isRunning = false;
+        const updateBtn = document.getElementById('update-btn');
+        const updateBtnText = document.getElementById('update-btn-text');
+        if (updateBtn) updateBtn.classList.remove('is-running');
+        if (updateBtnText) updateBtnText.textContent = I18N.update;
     }
-    
+
+    function showTokenWarning() {
+        const warn = document.getElementById('token-warning');
+        const relogin = document.getElementById('relogin-btn');
+        if (warn) warn.classList.add('show');
+        if (relogin) relogin.classList.add('show');
+    }
+
     function hideTokenWarning() {
-        document.getElementById('token-warning').classList.remove('show');
-        document.getElementById('relogin-btn').classList.remove('show');
+        const warn = document.getElementById('token-warning');
+        const relogin = document.getElementById('relogin-btn');
+        if (warn) warn.classList.remove('show');
+        if (relogin) relogin.classList.remove('show');
         tokenExpiredCount = 0;
     }
 
-    async function likeAll() {
-        if (!extractToken()) {
-            addLog('error', 'فشل استخراج التوكن');
-            return;
-        }
-        
-        isRunning = true;
-        document.getElementById('like-btn').disabled = true;
-        document.getElementById('update-btn').disabled = true;
-        document.getElementById('stop-btn').disabled = false;
-        addLog('info', 'بدء التفضيل...');
-        
-        for (let i = 0; i < postIds.length; i++) {
-            if (!isRunning) break;
-            await likePost(postIds[i]);
-            updateStats();
-            await sleep(CONFIG.updateInterval);
-        }
-        
-        addLog('success', '✅ اكتمل التفضيل!');
-        stop();
-    }
-
-    async function likePost(id) {
-        try {
-            const response = await fetch(CONFIG.graphqlEndpoint + `?queryName=submitLike&clientId=${CONFIG.clientId}&version=N0.0.1`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({
-                    query: `mutation { submitLike(token: "${CONFIG.token}", id: ${id}) }`,
-                })
-            });
-            
-            const data = await response.json();
-            if (data.data?.submitLike) {
-                stats.updated++;
-                addLog('success', `❤️ #${id}`);
-            }
-        } catch (error) {
-            stats.failed++;
-        }
-    }
-
-    function stop() {
-        isRunning = false;
-        document.getElementById('update-btn').disabled = false;
-        document.getElementById('stop-btn').disabled = true;
-        document.getElementById('like-btn').disabled = false;
-    }
-
     function updateStats() {
-        document.getElementById('stat-total').textContent = stats.total;
-        document.getElementById('stat-updated').textContent = stats.updated;
-        document.getElementById('stat-failed').textContent = stats.failed;
-        document.getElementById('stat-remaining').textContent = Math.max(0, stats.total - currentIndex);
+        const setTxt = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+        setTxt('stat-total', stats.total);
+        setTxt('stat-updated', stats.updated);
+        setTxt('stat-failed', stats.failed);
+        setTxt('stat-remaining', Math.max(0, stats.total - currentIndex));
+
         const progress = stats.total > 0 ? (currentIndex / stats.total) * 100 : 0;
-        document.getElementById('progress').style.width = progress + '%';
+        const progEl = document.getElementById('progress');
+        if (progEl) progEl.style.width = Math.min(100, progress) + '%';
     }
 
     function addLog(type, msg) {
         const log = document.getElementById('log');
+        const countPill = document.getElementById('haraj-log-count');
         if (!log) return;
+
         const entry = document.createElement('div');
-        entry.className = `log-entry log-${type}`;
-        const time = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        entry.innerHTML = `<span class="log-time">${time}</span> ${msg}`;
+        entry.className = `haraj-log-item ${type}`;
+        const time = new Date().toLocaleTimeString(isAr ? 'ar-SA' : 'en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        entry.innerHTML = `<span class="haraj-log-time">${time}</span> ${msg}`;
         log.insertBefore(entry, log.firstChild);
-        while (log.children.length > 100) log.removeChild(log.lastChild);
+
+        while (log.children.length > 80) log.removeChild(log.lastChild);
+        if (countPill) countPill.textContent = log.children.length;
     }
 
     function sleep(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
-    // ========== AI HELPER FUNCTIONALITY ==========
+    // ========== AI HELPER (Ad Description Enhancement) ==========
     let aiChatMessages = [];
     let currentTextarea = null;
     let suggestedText = '';
-    
+
     function injectAIButton() {
         const textarea = document.querySelector('textarea[data-testid="add-post-bodyText"]');
-        if (!textarea || document.getElementById('ai-helper-btn')) return;
-        
-        // Create AI button
+        if (!textarea || document.getElementById('haraj-ai-helper-btn')) return;
+
         const aiBtn = document.createElement('div');
-        aiBtn.id = 'ai-helper-btn';
-        aiBtn.className = 'ai-helper-btn';
+        aiBtn.id = 'haraj-ai-helper-btn';
+        aiBtn.className = 'haraj-ai-helper-btn';
         aiBtn.innerHTML = '🤖';
-        aiBtn.title = 'مساعد AI';
-        
-        // Create AI chat panel
+        aiBtn.title = isAr ? 'مساعد الذكاء الاصطناعي لكتابة الإعلان' : 'AI Assistant';
+
         const chatPanel = createAIChatPanel();
-        
-        // Insert button and panel (fixed-position, attached to body so they can be dragged anywhere)
         document.body.appendChild(aiBtn);
         document.body.appendChild(chatPanel);
-        
-        // Make both draggable, same as the main menu/toggle button
-        makeDraggable(aiBtn, aiBtn);
-        makeDraggable(chatPanel, chatPanel.querySelector('.ai-chat-header'));
-        
-        // Button click handler
+
         aiBtn.addEventListener('click', () => {
             currentTextarea = textarea;
             chatPanel.classList.toggle('show');
             if (chatPanel.classList.contains('show')) {
-                addAIMessage('system', 'مرحباً! أنا هنا لمساعدتك في تحسين نص إعلانك. اكتب ما تريد تغييره أو تحسينه.');
+                addAIMessage('system', isAr ? 'مرحباً! أستطيع مساعدتك في تحسين نص إعلانك وتنسيقه باحترافية. اكتب المطلوب وسأقوم بصياغته.' : 'Hello! I can help refine and optimize your ad copy. What would you like to improve?');
             }
         });
     }
-    
+
     function createAIChatPanel() {
         const panel = document.createElement('div');
-        panel.id = 'ai-chat-panel';
+        panel.id = 'haraj-ai-chat-panel';
         panel.innerHTML = `
-            <div class="ai-chat-header">
-                <h4>🤖 مساعد الذكاء الاصطناعي</h4>
-                <button class="ai-close-btn">×</button>
+            <div class="haraj-ai-header">
+                <span>🤖 ${isAr ? 'مساعد إعلانات حراج' : 'Haraj AI Assistant'}</span>
+                <button style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer;" class="haraj-ai-close">×</button>
             </div>
-            <div class="ai-chat-messages" id="ai-messages"></div>
-            <div class="ai-chat-input-area">
-                <div class="ai-input-wrapper">
-                    <input type="text" class="ai-chat-input" id="ai-input" placeholder="اكتب رسالتك هنا..." />
-                    <button class="ai-send-btn" id="ai-send-btn">📤</button>
-                </div>
+            <div class="haraj-ai-messages" id="haraj-ai-messages"></div>
+            <div class="haraj-ai-input-wrap">
+                <input type="text" class="haraj-ai-input" id="haraj-ai-input" placeholder="${isAr ? 'اكتب طلبك هنا...' : 'Type your request...'}" />
+                <button class="haraj-ai-send" id="haraj-ai-send-btn">➤</button>
             </div>
         `;
-        
-        // Close button handler
-        panel.querySelector('.ai-close-btn').addEventListener('click', () => {
-            panel.classList.remove('show');
-        });
-        
-        // Send button handler
-        const input = panel.querySelector('#ai-input');
-        const sendBtn = panel.querySelector('#ai-send-btn');
-        
-        sendBtn.addEventListener('click', () => sendAIMessage(input));
+
+        panel.querySelector('.haraj-ai-close').onclick = () => panel.classList.remove('show');
+        const input = panel.querySelector('#haraj-ai-input');
+        const sendBtn = panel.querySelector('#haraj-ai-send-btn');
+
+        sendBtn.onclick = () => sendAIMessage(input);
         input.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') sendAIMessage(input);
         });
-        
+
         return panel;
     }
-    
+
     function addAIMessage(role, content, showPreview = false) {
-        const messagesContainer = document.getElementById('ai-messages');
-        if (!messagesContainer) return;
-        
-        const messageDiv = document.createElement('div');
-        messageDiv.className = `ai-message ${role}`;
-        
+        const container = document.getElementById('haraj-ai-messages');
+        if (!container) return;
+
+        const msgDiv = document.createElement('div');
+        msgDiv.className = `haraj-ai-msg ${role}`;
+
         if (showPreview && role === 'assistant') {
-            const textNode = document.createElement('div');
-            textNode.textContent = content;
-            
-            const previewBox = document.createElement('div');
-            previewBox.className = 'ai-preview-box';
-            previewBox.textContent = suggestedText;
-            
-            const actionBtns = document.createElement('div');
-            actionBtns.className = 'ai-action-btns';
-            
-            const acceptBtn = document.createElement('button');
-            acceptBtn.className = 'ai-action-btn accept';
-            acceptBtn.textContent = '✓ قبول التغييرات';
-            acceptBtn.addEventListener('click', acceptAIText);
-            
-            const declineBtn = document.createElement('button');
-            declineBtn.className = 'ai-action-btn decline';
-            declineBtn.textContent = '✗ رفض';
-            declineBtn.addEventListener('click', declineAIText);
-            
-            actionBtns.appendChild(acceptBtn);
-            actionBtns.appendChild(declineBtn);
-            
-            messageDiv.appendChild(textNode);
-            messageDiv.appendChild(previewBox);
-            messageDiv.appendChild(actionBtns);
+            msgDiv.innerHTML = `
+                <div>${content}</div>
+                <div class="haraj-ai-preview-box">${suggestedText}</div>
+                <div class="haraj-ai-actions">
+                    <button class="haraj-ai-act-btn accept" id="ai-accept">${isAr ? '✓ تطبيق على الإعلان' : '✓ Apply'}</button>
+                    <button class="haraj-ai-act-btn decline" id="ai-decline">${isAr ? '✗ إلغاء' : '✗ Cancel'}</button>
+                </div>
+            `;
+            msgDiv.querySelector('#ai-accept').onclick = acceptAIText;
+            msgDiv.querySelector('#ai-decline').onclick = declineAIText;
         } else {
-            messageDiv.textContent = content;
+            msgDiv.textContent = content;
         }
-        
-        messagesContainer.appendChild(messageDiv);
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+        container.appendChild(msgDiv);
+        container.scrollTop = container.scrollHeight;
     }
-    
+
     async function sendAIMessage(input) {
         const message = input.value.trim();
         if (!message || !currentTextarea) return;
-        
-        const sendBtn = document.getElementById('ai-send-btn');
-        sendBtn.disabled = true;
-        
-        // Add user message
+
+        const sendBtn = document.getElementById('haraj-ai-send-btn');
+        if (sendBtn) sendBtn.disabled = true;
+
         addAIMessage('user', message);
         aiChatMessages.push({ role: 'user', content: message });
         input.value = '';
-        
-        // Add loading message
-        addAIMessage('system', 'جاري التفكير...');
-        
+
+        addAIMessage('system', isAr ? 'جاري التحسين والرد...' : 'Thinking...');
+
         try {
-            // Get current textarea content
             const currentContent = currentTextarea.value;
-            
-            // Build context for AI
-            const systemPrompt = `أنت مساعد ذكي متخصص في تحسين إعلانات حراج. النص الحالي في الإعلان هو:\n"${currentContent}"\n\nساعد المستخدم في تحسين أو تعديل هذا النص حسب طلبه. قدم النص المحسّن كاملاً بدون شرح إضافي.`;
-            
+            const systemPrompt = `أنت مساعد خبير متخصص في تحسين إعلانات منصة حراج السعودية. النص الحالي للإعلان هو:\n"${currentContent}"\nقم بصياغة أو تعديل النص ليصبح جذاباً وواضحاً ومناسباً لمنصة حراج بدون مقدمات أو شرح إضافي.`;
+
             const messages = [
                 { role: 'system', content: systemPrompt },
                 ...aiChatMessages
             ];
-            
-            // Call OpenRouter API using fetch (works without Tampermonkey APIs)
-            fetch(OPENROUTER_CONFIG.apiUrl, {
+
+            const response = await fetch(OPENROUTER_CONFIG.apiUrl, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${OPENROUTER_CONFIG.apiKey}`,
@@ -1032,85 +1268,66 @@
                     model: OPENROUTER_CONFIG.model,
                     messages: messages
                 })
-            })
-            .then(response => response.json())
-            .then(data => {
-                const messagesContainer = document.getElementById('ai-messages');
-                
-                if (messagesContainer && messagesContainer.lastChild && messagesContainer.lastChild.classList.contains('system')) {
-                    messagesContainer.removeChild(messagesContainer.lastChild);
-                }
-                
-                if (data.error) {
-                    const errorMsg = data.error.message || 'خطأ غير معروف';
-                    console.error('API Error:', data);
-                    addAIMessage('system', `❌ خطأ: ${errorMsg}`);
-                    sendBtn.disabled = false;
-                    return;
-                }
-                
+            });
+
+            const data = await response.json();
+            const container = document.getElementById('haraj-ai-messages');
+            if (container && container.lastChild && container.lastChild.classList.contains('system')) {
+                container.removeChild(container.lastChild);
+            }
+
+            if (data.choices && data.choices[0]) {
                 const aiResponse = data.choices[0].message.content;
                 suggestedText = aiResponse;
                 aiChatMessages.push({ role: 'assistant', content: aiResponse });
-                addAIMessage('assistant', 'إليك النص المحسّن:', true);
-                sendBtn.disabled = false;
-            })
-            .catch(error => {
-                console.error('AI Error:', error);
-                const messagesContainer = document.getElementById('ai-messages');
-                if (messagesContainer && messagesContainer.lastChild && messagesContainer.lastChild.classList.contains('system')) {
-                    messagesContainer.removeChild(messagesContainer.lastChild);
-                }
-                addAIMessage('system', 'عذراً، حدث خطأ في الاتصال.');
-                sendBtn.disabled = false;
-            });
-            
-        } catch (error) {
-            console.error('AI Error:', error);
-            addAIMessage('system', 'عذراً، حدث خطأ غير متوقع. حاول مرة أخرى.');
-            sendBtn.disabled = false;
+                addAIMessage('assistant', isAr ? 'إليك النص المقترح للإعلان:' : 'Here is the refined text:', true);
+            } else {
+                addAIMessage('system', isAr ? 'حدث خطأ في معالجة الطلب.' : 'Error processing request.');
+            }
+        } catch (e) {
+            addAIMessage('system', isAr ? 'تعذر الاتصال بالذكاء الاصطناعي.' : 'Failed to connect to AI.');
+        } finally {
+            if (sendBtn) sendBtn.disabled = false;
         }
     }
-    
-    // Accept/Decline functions
+
     function acceptAIText() {
         if (currentTextarea && suggestedText) {
             currentTextarea.value = suggestedText;
-            // Trigger change event
             currentTextarea.dispatchEvent(new Event('input', { bubbles: true }));
             currentTextarea.dispatchEvent(new Event('change', { bubbles: true }));
-            addAIMessage('system', '✓ تم تطبيق التغييرات بنجاح!');
+            addAIMessage('system', isAr ? '✓ تم تحديث نص الإعلان بنجاح!' : '✓ Updated ad text!');
             suggestedText = '';
         }
     }
-    
+
     function declineAIText() {
-        addAIMessage('system', 'تم رفض التغييرات. يمكنك طلب تعديل آخر.');
+        addAIMessage('system', isAr ? 'تم إلغاء الاقتراح.' : 'Cancelled.');
         suggestedText = '';
     }
-    
-    // Watch for textarea to appear
-    function watchForTextarea() {
+
+    // Lifecycle Watcher: MutationObserver to re-inject buttons when React/Next.js updates DOM
+    function init() {
+        createModal();
+        injectNavButton();
+        injectAIButton();
+
         const observer = new MutationObserver(() => {
+            injectNavButton();
             injectAIButton();
         });
-        
+
         observer.observe(document.body, {
             childList: true,
             subtree: true
         });
-        
-        // Try immediately
-        injectAIButton();
     }
 
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => {
-            createMenu();
-            watchForTextarea();
-        });
+        document.addEventListener('DOMContentLoaded', init);
     } else {
-        createMenu();
-        watchForTextarea();
+        init();
     }
+})();
+
 })();
