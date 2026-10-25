@@ -860,13 +860,8 @@
             if (desktopBtn) desktopBtn.style.display = 'none';
 
             const existingBtn = document.getElementById('haraj-plus-nav-btn');
-            // If button is already properly placed inside bottomNav, just ensure label is fresh
+            // If button is already properly placed inside bottomNav, do not touch DOM
             if (existingBtn && bottomNav.contains(existingBtn)) {
-                const label = existingBtn.querySelector('.haraj-plus-label');
-                if (label) {
-                    const i18n = getI18n();
-                    label.textContent = i18n.plus;
-                }
                 return;
             }
 
@@ -1386,20 +1381,34 @@
     function init() {
         tick();
 
-        // 1. Polling interval to handle React hydration / delayed rendering
+        // 1. Polling interval that stops as soon as the button is mounted
         let attempts = 0;
         const intervalId = setInterval(() => {
             tick();
             attempts++;
-            if (attempts >= 40) { // Poll for 12 seconds
+            const bottomNav = findBottomNav();
+            const btn = document.getElementById('haraj-plus-nav-btn');
+            if (bottomNav && btn && bottomNav.contains(btn)) {
+                clearInterval(intervalId);
+            } else if (attempts >= 30) {
                 clearInterval(intervalId);
             }
-        }, 300);
+        }, 400);
 
-        // 2. MutationObserver for SPA route changes and dynamic updates
+        // 2. Debounced MutationObserver for SPA client-side route changes only
+        let debounceTimer = null;
         try {
             const observer = new MutationObserver(() => {
-                tick();
+                if (debounceTimer) return;
+                debounceTimer = setTimeout(() => {
+                    debounceTimer = null;
+                    const bottomNav = findBottomNav();
+                    const btn = document.getElementById('haraj-plus-nav-btn');
+                    // Only run tick if the button is missing from bottomNav
+                    if (!bottomNav || !btn || !bottomNav.contains(btn)) {
+                        tick();
+                    }
+                }, 500);
             });
 
             observer.observe(document.body || document.documentElement, {
