@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Haraj Plus - حراج بلس
 // @namespace    http://tampermonkey.net/
-// @version      7.1.0
+// @version      7.2.0
 // @description  Haraj auto-updater and toolkit with native Haraj theme - تحديث إعلانات حراج بلس
 // @author       Haraj Plus
 // @match        *://haraj.com.sa/*
@@ -21,7 +21,7 @@
 
 (function() {
     'use strict';
-    const VERSION = '7.1.0';
+    const VERSION = '7.2.0';
     console.log(`[Haraj Plus] Script initializing v${VERSION}...`);
 
     // OpenRouter API Configuration
@@ -44,10 +44,10 @@
     let postIds = [];
     let stats = { total: 0, updated: 0, failed: 0 };
     let tokenExpiredCount = 0;
+    let domObserver = null;
 
-    // Detect language from Haraj (dynamic check)
+    // Detect language from Haraj
     function isArabicLanguage() {
-        // Direct inspect of bottom nav "home" text
         const homeEl = document.querySelector('a[data-testid="home"]');
         if (homeEl) {
             const txt = (homeEl.textContent || '').trim();
@@ -93,14 +93,14 @@
             sessionWarning: isAr ? '⚠️ انتهت الجلسة - مشكلة من السيرفر' : '⚠️ Session Expired',
             relogin: isAr ? '🔄 إعادة تسجيل الدخول' : '🔄 Login Again',
             ready: isAr ? `🚀 حراج بلس جاهز (v${VERSION})` : `🚀 Haraj Plus ready (v${VERSION})`,
-            noAds: isAr ? 'لم يتم العثور على إعلانات في الصفحة' : 'No ads found on this page',
+            noAds: isAr ? 'لم يتم العثور على إعلانات في هذه الصفحة' : 'No ads found on this page',
             loadedAds: isAr ? 'تم تحميل %s إعلان' : 'Loaded %s ads',
             done: isAr ? '✅ اكتمل التحديث بنجاح!' : '✅ Update completed successfully!',
             stopped: isAr ? '⏹️ تم إيقاف التحديث' : '⏹️ Update stopped'
         };
     }
 
-    // Safe storage and style helpers (prevents ReferenceErrors if running without GM grants)
+    // Safe storage and style helpers
     function safeAddStyle(css) {
         if (typeof GM_addStyle === 'function') {
             GM_addStyle(css);
@@ -113,22 +113,46 @@
     function safeGetValue(key, defaultVal) {
         try {
             if (typeof GM_getValue === 'function') return GM_getValue(key, defaultVal);
-        } catch(e) {}
+        } catch (e) {}
         const val = localStorage.getItem(key);
         return val !== null ? val : defaultVal;
     }
     function safeSetValue(key, val) {
         try {
             if (typeof GM_setValue === 'function') GM_setValue(key, val);
-        } catch(e) {}
+        } catch (e) {}
         try {
             localStorage.setItem(key, val);
-        } catch(e) {}
+        } catch (e) {}
     }
 
-    // Inject styles
+    // Inject styles (Haraj Blue, Crisp White, Dark slate)
     safeAddStyle(`
-        /* Desktop Fallback Floating Trigger Button (only when bottom nav is not in DOM) */
+        /* Bottom Navigation item styling with small-screen safety */
+        .haraj-plus-nav-btn {
+            min-width: 0 !important;
+            user-select: none !important;
+            -webkit-tap-highlight-color: transparent !important;
+            transition: color 0.15s ease, transform 0.15s ease !important;
+            text-decoration: none !important;
+        }
+        .haraj-plus-nav-btn:active {
+            transform: scale(0.92) !important;
+        }
+        .haraj-plus-nav-btn.active {
+            color: #0066cc !important;
+        }
+        .haraj-plus-nav-btn.active svg {
+            stroke: #0066cc !important;
+        }
+        .haraj-plus-label {
+            font-size: 10px !important;
+            white-space: nowrap !important;
+            line-height: 1.1 !important;
+            font-weight: 600 !important;
+        }
+
+        /* Desktop Fallback Floating Trigger Button */
         #haraj-plus-desktop-btn {
             position: fixed !important;
             bottom: 24px !important;
@@ -152,15 +176,7 @@
             box-shadow: 0 6px 20px rgba(0, 102, 204, 0.5) !important;
         }
 
-        /* Bottom Nav Item active state */
-        #haraj-plus-nav-btn.active {
-            color: #0066cc !important;
-        }
-        #haraj-plus-nav-btn.active svg {
-            stroke: #0066cc !important;
-        }
-
-        /* Haraj Plus Popup Modal - Clean Haraj Theme (Blue, White, Black/Dark) */
+        /* Haraj Plus Popup Modal - Clean Haraj Theme */
         #haraj-plus-modal {
             position: fixed !important;
             bottom: 68px !important;
@@ -187,7 +203,7 @@
             transform: translateX(-50%) translateY(0) scale(1) !important;
         }
 
-        /* Haraj Dark Mode Support */
+        /* Dark Mode Support */
         html.dark #haraj-plus-modal,
         body.dark #haraj-plus-modal {
             background: #18191a !important;
@@ -195,7 +211,6 @@
             box-shadow: 0 12px 35px -4px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.12) !important;
         }
 
-        /* Modal Header */
         .haraj-modal-header {
             display: flex !important;
             align-items: center !important;
@@ -244,12 +259,11 @@
             background: #2a2a2a !important;
         }
 
-        /* Modal Body */
         .haraj-modal-body {
             padding: 14px 16px !important;
         }
 
-        /* Action Buttons Grid: تحديث & اعلاناتي */
+        /* 2 Main Action Buttons */
         .haraj-action-grid {
             display: grid !important;
             grid-template-columns: 1fr 1fr !important;
@@ -314,7 +328,7 @@
             background: #333333 !important;
         }
 
-        /* Batch Speed Selector */
+        /* Speed Selector */
         .haraj-batch-row {
             display: flex !important;
             align-items: center !important;
@@ -351,7 +365,7 @@
             color: #38bdf8 !important;
         }
 
-        /* Stats Row */
+        /* Stats */
         .haraj-stats-grid {
             display: grid !important;
             grid-template-columns: repeat(4, 1fr) !important;
@@ -382,7 +396,6 @@
             font-weight: 600 !important;
         }
 
-        /* Progress Bar */
         .haraj-progress-track {
             width: 100% !important;
             height: 4px !important;
@@ -401,7 +414,6 @@
             transition: width 0.3s ease !important;
         }
 
-        /* Token Warning & Relogin Button */
         .haraj-token-warning {
             display: none;
             background: #fef2f2 !important;
@@ -562,7 +574,7 @@
             font-size: 8px !important;
         }
 
-        /* AI Helper Floating button & panel (Ad description refinement) */
+        /* AI Helper */
         .haraj-ai-helper-btn {
             position: fixed !important;
             bottom: 75px !important;
@@ -665,7 +677,7 @@
         }
     `);
 
-    // Create the Popup Modal (Starts hidden!)
+    // Create Modal
     function createModal() {
         if (document.getElementById('haraj-plus-modal')) return;
 
@@ -762,13 +774,11 @@
         `;
         document.body.appendChild(modal);
 
-        // Bind events inside modal
         document.getElementById('haraj-modal-close').onclick = () => toggleModal(false);
         document.getElementById('update-btn').onclick = handleUpdateClick;
         document.getElementById('myads-btn').onclick = openMyAds;
         document.getElementById('relogin-btn').onclick = () => window.location.href = 'https://haraj.com.sa/login';
 
-        // Speed buttons
         modal.querySelectorAll('.haraj-batch-btn').forEach(btn => {
             btn.onclick = () => {
                 const speed = parseInt(btn.getAttribute('data-speed'));
@@ -780,7 +790,6 @@
             };
         });
 
-        // Debug Log Accordion Toggle
         const logToggle = document.getElementById('haraj-log-toggle');
         const logArrow = document.getElementById('haraj-log-arrow');
         const logBody = document.getElementById('haraj-log-body');
@@ -796,7 +805,6 @@
             }
         };
 
-        // Close when clicking outside modal
         document.addEventListener('click', (e) => {
             const navBtn = document.getElementById('haraj-plus-nav-btn');
             const desktopBtn = document.getElementById('haraj-plus-desktop-btn');
@@ -811,7 +819,6 @@
         console.log('[Haraj Plus] Modal initialized.');
     }
 
-    // Toggle Modal visibility
     function toggleModal(forceState) {
         const modal = document.getElementById('haraj-plus-modal');
         const navBtn = document.getElementById('haraj-plus-nav-btn');
@@ -829,10 +836,9 @@
         }
     }
 
-    // Safe locator for Haraj's bottom navigation bar
+    // Locate Haraj's bottom navigation bar
     function findBottomNav() {
-        // Method 1: Check known children in the bottom bar
-        const testIds = ['msgs', 'notes', 'new_post', 'all_sections', 'home'];
+        const testIds = ['new_post', 'msgs', 'notes', 'all_sections', 'home'];
         for (const testId of testIds) {
             const el = document.querySelector(`a[data-testid="${testId}"]`);
             if (el && el.parentElement) {
@@ -840,7 +846,6 @@
             }
         }
 
-        // Method 2: Check fixed bottom container
         const fixedDivs = document.querySelectorAll('div.fixed.bottom-0');
         for (const div of fixedDivs) {
             if (div.querySelector('a[href="/"], a[href*="post"], a[href*="note"], a[href*="chat"]')) {
@@ -851,7 +856,7 @@
         return null;
     }
 
-    // Inject the Plus / بلس button into the bottom navigation bar
+    // Inject the Plus button right beside the center button (kinda middle!)
     function injectNavButton() {
         const bottomNav = findBottomNav();
         const desktopBtn = document.getElementById('haraj-plus-desktop-btn');
@@ -860,22 +865,19 @@
             if (desktopBtn) desktopBtn.style.display = 'none';
 
             const existingBtn = document.getElementById('haraj-plus-nav-btn');
-            // If button is already properly placed inside bottomNav, do not touch DOM
             if (existingBtn && bottomNav.contains(existingBtn)) {
-                return;
+                return true; // Already safely placed!
             }
 
-            // If it was attached somewhere else (or disconnected by React re-render), remove old instance
             if (existingBtn) {
                 existingBtn.remove();
             }
 
             const i18n = getI18n();
 
-            // Create button with Haraj's exact Tailwind classes
             const plusItem = document.createElement('a');
             plusItem.id = 'haraj-plus-nav-btn';
-            plusItem.className = 'mt-1 grid flex-1 justify-center justify-items-center gap-0.5 text-elementary cursor-pointer select-none';
+            plusItem.className = 'mt-1 grid flex-1 justify-center justify-items-center gap-0.5 text-elementary cursor-pointer haraj-plus-nav-btn';
             plusItem.setAttribute('role', 'button');
             plusItem.setAttribute('tabindex', '0');
             plusItem.setAttribute('data-testid', 'haraj_plus');
@@ -885,7 +887,7 @@
 
             plusItem.innerHTML = `
                 <span class="relative flex items-center justify-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"></circle>
                         <line x1="12" y1="8" x2="12" y2="16"></line>
                         <line x1="8" y1="12" x2="16" y2="12"></line>
@@ -900,11 +902,18 @@
                 toggleModal();
             };
 
-            // Place as the last item in the bottom nav bar
-            bottomNav.appendChild(plusItem);
-            console.log('[Haraj Plus] Injected "بلس" / "Plus" button into bottom navigation bar successfully!');
+            // Placement: Put it right before "أضف عرض" (new_post), placing it "kinda middle" beside the center button!
+            const newPost = bottomNav.querySelector('a[data-testid="new_post"]');
+            if (newPost) {
+                bottomNav.insertBefore(plusItem, newPost);
+            } else {
+                bottomNav.appendChild(plusItem);
+            }
+
+            console.log('[Haraj Plus] Button placed kinda middle (next to center button)!');
+            return true;
         } else {
-            // Desktop fallback trigger
+            // Desktop fallback
             let trigger = document.getElementById('haraj-plus-desktop-btn');
             if (!trigger) {
                 trigger = document.createElement('div');
@@ -923,6 +932,7 @@
                 document.body.appendChild(trigger);
             }
             trigger.style.display = 'flex';
+            return false;
         }
     }
 
@@ -934,7 +944,7 @@
                 const raw = localStorage.getItem(key);
                 if (!raw) continue;
                 const parsed = JSON.parse(raw);
-                if (parsed?.state?.accessToken || parsed?.state?.username) {
+                if (parsed?.state?.accessToken || parsed?.state?.username || parsed?.state?.user) {
                     return parsed.state;
                 }
             } catch (e) {}
@@ -988,19 +998,108 @@
         return true;
     }
 
+    // Robust multi-source username finder for profile
     function getMyUsername() {
+        // Source 1: authState
         const authState = getAuthState();
-        return authState?.username || null;
+        if (authState) {
+            if (authState.username) return authState.username;
+            if (authState.user?.username) return authState.user.username;
+            if (authState.profile?.username) return authState.profile.username;
+        }
+
+        // Source 2: Decode from JWT token if available
+        const token = CONFIG.token || (function() {
+            const m = document.cookie.match(/accessToken=([^;]+)/);
+            return m ? decodeURIComponent(m[1]) : null;
+        })();
+        if (token && token.includes('.')) {
+            try {
+                const payload = JSON.parse(atob(token.split('.')[1]));
+                if (payload.username) return payload.username;
+                if (payload.user?.username) return payload.user.username;
+            } catch (e) {}
+        }
+
+        // Source 3: Search all localStorage entries
+        try {
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (!k) continue;
+                const val = localStorage.getItem(k);
+                if (val && val.includes('"username"')) {
+                    const parsed = JSON.parse(val);
+                    const u = parsed?.username || parsed?.state?.username || parsed?.state?.user?.username || parsed?.user?.username;
+                    if (u && typeof u === 'string') return u;
+                }
+            }
+        } catch (e) {}
+
+        // Source 4: Profile link in DOM (e.g. /users/john_doe)
+        const profileLinks = document.querySelectorAll('a[href*="/users/"]');
+        for (const a of profileLinks) {
+            const href = a.getAttribute('href') || '';
+            const match = href.match(/\/users\/([^/?#]+)/);
+            if (match && match[1] && match[1] !== 'all') {
+                return decodeURIComponent(match[1]);
+            }
+        }
+
+        return null;
     }
 
+    // Open user's ads page with fail-safe fallback
     function openMyAds() {
         const i18n = getI18n();
         const username = getMyUsername();
         if (username) {
             addLog('info', `${i18n.isAr ? 'فتح إعلاناتي' : 'Opening ads'}: ${username}`);
-            window.location.href = `https://haraj.com.sa/users/${username}`;
+            const langPrefix = i18n.isAr ? '' : '/en';
+            window.location.href = `${window.location.origin}${langPrefix}/users/${encodeURIComponent(username)}`;
         } else {
-            addLog('error', i18n.isAr ? 'لم يتم العثور على اسم المستخدم - سجل الدخول أولاً' : 'Username not found - please log in first');
+            // Fallback: If username couldn't be extracted, navigate directly to /profile or haraj profile route
+            addLog('info', i18n.isAr ? 'جاري فتح الصفحة الشخصية...' : 'Opening profile...');
+            window.location.href = `${window.location.origin}/profile`;
+        }
+    }
+
+    // Multi-selector ad collector (supports data-test-postid, post-ids in URLs, profile ads)
+    function collectPosts() {
+        const i18n = getI18n();
+        const idSet = new Set();
+
+        // 1. data-test-postid attribute (standard feed)
+        document.querySelectorAll('[data-test-postid]').forEach(el => {
+            const val = el.getAttribute('data-test-postid');
+            const id = parseInt(val);
+            if (id && !isNaN(id)) idSet.add(id);
+        });
+
+        // 2. data-testid with post IDs
+        document.querySelectorAll('[data-testid*="post-"]').forEach(el => {
+            const tid = el.getAttribute('data-testid') || '';
+            const match = tid.match(/\d{6,}/);
+            if (match) idSet.add(parseInt(match[0]));
+        });
+
+        // 3. Links pointing to post numbers: e.g. /119876543/title
+        document.querySelectorAll('a[href]').forEach(a => {
+            const href = a.getAttribute('href') || '';
+            const match = href.match(/^\/(\d{7,10})(?:\/|$)/);
+            if (match) {
+                idSet.add(parseInt(match[1]));
+            }
+        });
+
+        postIds = Array.from(idSet);
+        stats = { total: postIds.length, updated: 0, failed: 0 };
+        currentIndex = 0;
+        updateStats();
+
+        if (postIds.length > 0) {
+            addLog('success', i18n.loadedAds.replace('%s', postIds.length));
+        } else {
+            addLog('error', i18n.noAds);
         }
     }
 
@@ -1012,38 +1111,19 @@
         if (updateBtn) updateBtn.disabled = true;
 
         let previousCount = 0;
-        for (let i = 0; i < 50; i++) {
+        for (let i = 0; i < 40; i++) {
             window.scrollTo(0, document.body.scrollHeight);
-            await sleep(900);
+            await sleep(800);
             const loadMoreBtn = document.querySelector('[data-testid="posts-load-more"]');
             if (loadMoreBtn && !loadMoreBtn.disabled) loadMoreBtn.click();
-            const currentCount = document.querySelectorAll('[data-test-postid]').length;
-            if (currentCount === previousCount) break;
+            const currentCount = document.querySelectorAll('[data-test-postid], a[href^="/1"]').length;
+            if (currentCount === previousCount && i > 3) break;
             previousCount = currentCount;
         }
 
         window.scrollTo(0, 0);
         collectPosts();
         if (updateBtn) updateBtn.disabled = false;
-    }
-
-    function collectPosts() {
-        const i18n = getI18n();
-        postIds = [];
-        document.querySelectorAll('[data-test-postid]').forEach(el => {
-            const id = el.getAttribute('data-test-postid');
-            if (id) postIds.push(parseInt(id));
-        });
-
-        stats = { total: postIds.length, updated: 0, failed: 0 };
-        currentIndex = 0;
-        updateStats();
-
-        if (postIds.length > 0) {
-            addLog('success', i18n.loadedAds.replace('%s', postIds.length));
-        } else {
-            addLog('error', i18n.noAds);
-        }
     }
 
     function handleUpdateClick() {
@@ -1210,7 +1290,7 @@
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
-    // ========== AI HELPER (Ad Description Enhancement) ==========
+    // ========== AI HELPER ==========
     let aiChatMessages = [];
     let currentTextarea = null;
     let suggestedText = '';
@@ -1367,57 +1447,71 @@
         suggestedText = '';
     }
 
-    // Main Init
+    // Main Tick
     function tick() {
         try {
             createModal();
-            injectNavButton();
+            const mounted = injectNavButton();
             injectAIButton();
+            return mounted;
         } catch (err) {
             console.error('[Haraj Plus] Tick error:', err);
+            return false;
         }
     }
 
     function init() {
         tick();
 
-        // 1. Polling interval that stops as soon as the button is mounted
-        let attempts = 0;
+        // 1. Initial short-polling: runs only until button is placed, then immediately stops!
+        let count = 0;
         const intervalId = setInterval(() => {
-            tick();
-            attempts++;
-            const bottomNav = findBottomNav();
-            const btn = document.getElementById('haraj-plus-nav-btn');
-            if (bottomNav && btn && bottomNav.contains(btn)) {
-                clearInterval(intervalId);
-            } else if (attempts >= 30) {
+            count++;
+            const isMounted = tick();
+            if (isMounted || count >= 20) {
                 clearInterval(intervalId);
             }
-        }, 400);
+        }, 350);
 
-        // 2. Debounced MutationObserver for SPA client-side route changes only
-        let debounceTimer = null;
+        // 2. Client-side navigation watcher (Next.js route changes): zero CPU impact on normal browsing
+        const handleRouteChange = () => {
+            setTimeout(tick, 200);
+            setTimeout(tick, 800);
+        };
+        window.addEventListener('popstate', handleRouteChange);
+
         try {
-            const observer = new MutationObserver(() => {
-                if (debounceTimer) return;
-                debounceTimer = setTimeout(() => {
-                    debounceTimer = null;
-                    const bottomNav = findBottomNav();
-                    const btn = document.getElementById('haraj-plus-nav-btn');
-                    // Only run tick if the button is missing from bottomNav
-                    if (!bottomNav || !btn || !bottomNav.contains(btn)) {
-                        tick();
-                    }
-                }, 500);
+            const origPushState = history.pushState;
+            if (origPushState) {
+                history.pushState = function() {
+                    origPushState.apply(this, arguments);
+                    handleRouteChange();
+                };
+            }
+            const origReplaceState = history.replaceState;
+            if (origReplaceState) {
+                history.replaceState = function() {
+                    origReplaceState.apply(this, arguments);
+                    handleRouteChange();
+                };
+            }
+        } catch (e) {}
+
+        // 3. Lightweight observer that only runs when bottomNav element changes
+        try {
+            domObserver = new MutationObserver((mutations) => {
+                const bottomNav = findBottomNav();
+                const btn = document.getElementById('haraj-plus-nav-btn');
+                if (!bottomNav || !btn || !bottomNav.contains(btn)) {
+                    tick();
+                }
             });
 
-            observer.observe(document.body || document.documentElement, {
+            domObserver.observe(document.body || document.documentElement, {
                 childList: true,
-                subtree: true
+                subtree: false // Shallow observe on body to avoid feed mutation overhead!
             });
-        } catch (e) {
-            console.error('[Haraj Plus] Observer setup error:', e);
-        }
+        } catch (e) {}
     }
 
     if (document.readyState === 'loading') {
