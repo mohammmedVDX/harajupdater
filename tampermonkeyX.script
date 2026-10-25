@@ -1,13 +1,17 @@
 // ==UserScript==
 // @name         Haraj Plus - حراج بلس
 // @namespace    http://tampermonkey.net/
-// @version      7.0.0
+// @version      7.1.0
 // @description  Haraj auto-updater and toolkit with native Haraj theme - تحديث إعلانات حراج بلس
 // @author       Haraj Plus
-// @match        https://haraj.com.sa/*
-// @match        https://www.haraj.com.sa/*
-// @match        https://haraj.com/*
-// @match        https://www.haraj.com/*
+// @match        *://haraj.com.sa/*
+// @match        *://*.haraj.com.sa/*
+// @match        *://haraj.com/*
+// @match        *://*.haraj.com/*
+// @include      *://haraj.com.sa/*
+// @include      *://*.haraj.com.sa/*
+// @include      *://haraj.com/*
+// @include      *://*.haraj.com/*
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_addStyle
@@ -17,7 +21,8 @@
 
 (function() {
     'use strict';
-    const VERSION = '7.0.0';
+    const VERSION = '7.1.0';
+    console.log(`[Haraj Plus] Script initializing v${VERSION}...`);
 
     // OpenRouter API Configuration
     const OPENROUTER_CONFIG = {
@@ -40,87 +45,90 @@
     let stats = { total: 0, updated: 0, failed: 0 };
     let tokenExpiredCount = 0;
 
-    // Detect language from Haraj
-    function getHarajLang() {
+    // Detect language from Haraj (dynamic check)
+    function isArabicLanguage() {
+        // Direct inspect of bottom nav "home" text
+        const homeEl = document.querySelector('a[data-testid="home"]');
+        if (homeEl) {
+            const txt = (homeEl.textContent || '').trim();
+            if (txt.includes('Home')) return false;
+            if (txt.includes('الرئيسية')) return true;
+        }
+
         if (window.location.pathname.startsWith('/en') || window.location.pathname.includes('/en/')) {
-            return 'en';
+            return false;
         }
-        const htmlLang = (document.documentElement.lang || '').toLowerCase();
-        if (htmlLang.startsWith('en')) {
-            return 'en';
+
+        const docLang = (document.documentElement.lang || '').toLowerCase();
+        if (docLang.startsWith('en')) {
+            return false;
         }
+
         try {
             const stored = localStorage.getItem('i18nextLng') || localStorage.getItem('lang');
             if (stored && stored.toLowerCase().startsWith('en')) {
-                return 'en';
+                return false;
             }
         } catch (e) {}
-        return 'ar';
+
+        return true;
     }
 
-    const isAr = getHarajLang() === 'ar';
-    const I18N = {
-        plus: isAr ? 'بلس' : 'Plus',
-        title: isAr ? 'حراج بلس' : 'Haraj Plus',
-        update: isAr ? 'تحديث' : 'Update',
-        updating: isAr ? 'جاري التحديث...' : 'Updating...',
-        stop: isAr ? 'إيقاف' : 'Stop',
-        myAds: isAr ? 'اعلاناتي' : 'My Ads',
-        batch: isAr ? 'دفعة' : 'Batch',
-        total: isAr ? 'إجمالي' : 'Total',
-        updated: isAr ? 'محدث' : 'Updated',
-        failed: isAr ? 'فشل' : 'Failed',
-        remaining: isAr ? 'متبقي' : 'Remaining',
-        logTitle: isAr ? 'سجل العمليات واستجابة السيرفر' : 'Debug Log & Server Response',
-        sessionWarning: isAr ? '⚠️ انتهت الجلسة - مشكلة من السيرفر' : '⚠️ Session Expired',
-        relogin: isAr ? '🔄 إعادة تسجيل الدخول' : '🔄 Login Again',
-        ready: isAr ? `🚀 حراج بلس جاهز (v${VERSION})` : `🚀 Haraj Plus ready (v${VERSION})`,
-        noAds: isAr ? 'لم يتم العثور على إعلانات في الصفحة' : 'No ads found on this page',
-        loadedAds: isAr ? 'تم تحميل %s إعلان' : 'Loaded %s ads',
-        done: isAr ? '✅ اكتمل التحديث بنجاح!' : '✅ Update completed successfully!',
-        stopped: isAr ? '⏹️ تم إيقاف التحديث' : '⏹️ Update stopped'
-    };
+    function getI18n() {
+        const isAr = isArabicLanguage();
+        return {
+            isAr,
+            plus: isAr ? 'بلس' : 'Plus',
+            title: isAr ? 'حراج بلس' : 'Haraj Plus',
+            update: isAr ? 'تحديث' : 'Update',
+            updating: isAr ? 'جاري التحديث...' : 'Updating...',
+            stop: isAr ? 'إيقاف' : 'Stop',
+            myAds: isAr ? 'اعلاناتي' : 'My Ads',
+            batch: isAr ? 'دفعة' : 'Batch',
+            total: isAr ? 'إجمالي' : 'Total',
+            updated: isAr ? 'محدث' : 'Updated',
+            failed: isAr ? 'فشل' : 'Failed',
+            remaining: isAr ? 'متبقي' : 'Remaining',
+            logTitle: isAr ? 'سجل العمليات واستجابة السيرفر' : 'Debug Log & Server Response',
+            sessionWarning: isAr ? '⚠️ انتهت الجلسة - مشكلة من السيرفر' : '⚠️ Session Expired',
+            relogin: isAr ? '🔄 إعادة تسجيل الدخول' : '🔄 Login Again',
+            ready: isAr ? `🚀 حراج بلس جاهز (v${VERSION})` : `🚀 Haraj Plus ready (v${VERSION})`,
+            noAds: isAr ? 'لم يتم العثور على إعلانات في الصفحة' : 'No ads found on this page',
+            loadedAds: isAr ? 'تم تحميل %s إعلان' : 'Loaded %s ads',
+            done: isAr ? '✅ اكتمل التحديث بنجاح!' : '✅ Update completed successfully!',
+            stopped: isAr ? '⏹️ تم إيقاف التحديث' : '⏹️ Update stopped'
+        };
+    }
 
-    // Inject styles matching Haraj's native blue, white, and dark theme
-    GM_addStyle(`
-        /* Bottom Navigation Item styling */
-        .haraj-plus-nav-item {
-            margin-top: 4px !important;
-            display: grid !important;
-            flex: 1 1 0% !important;
-            justify-content: center !important;
-            justify-items: center !important;
-            gap: 2px !important;
-            color: #64748b !important;
-            cursor: pointer !important;
-            user-select: none !important;
-            -webkit-tap-highlight-color: transparent !important;
-            transition: color 0.15s ease, transform 0.15s ease !important;
-            text-decoration: none !important;
+    // Safe storage and style helpers (prevents ReferenceErrors if running without GM grants)
+    function safeAddStyle(css) {
+        if (typeof GM_addStyle === 'function') {
+            GM_addStyle(css);
+        } else {
+            const style = document.createElement('style');
+            style.textContent = css;
+            (document.head || document.documentElement).appendChild(style);
         }
-        .haraj-plus-nav-item:active {
-            transform: scale(0.92) !important;
-        }
-        .haraj-plus-nav-item.active {
-            color: #0066cc !important;
-        }
-        .haraj-plus-nav-icon {
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            position: relative !important;
-            width: 24px !important;
-            height: 24px !important;
-        }
-        .haraj-plus-nav-label {
-            text-align: center !important;
-            font-size: 11px !important;
-            font-weight: 500 !important;
-            line-height: 1 !important;
-            font-family: inherit !important;
-        }
+    }
+    function safeGetValue(key, defaultVal) {
+        try {
+            if (typeof GM_getValue === 'function') return GM_getValue(key, defaultVal);
+        } catch(e) {}
+        const val = localStorage.getItem(key);
+        return val !== null ? val : defaultVal;
+    }
+    function safeSetValue(key, val) {
+        try {
+            if (typeof GM_setValue === 'function') GM_setValue(key, val);
+        } catch(e) {}
+        try {
+            localStorage.setItem(key, val);
+        } catch(e) {}
+    }
 
-        /* Desktop Fallback Floating Trigger Button (only when bottom nav is absent) */
+    // Inject styles
+    safeAddStyle(`
+        /* Desktop Fallback Floating Trigger Button (only when bottom nav is not in DOM) */
         #haraj-plus-desktop-btn {
             position: fixed !important;
             bottom: 24px !important;
@@ -144,6 +152,14 @@
             box-shadow: 0 6px 20px rgba(0, 102, 204, 0.5) !important;
         }
 
+        /* Bottom Nav Item active state */
+        #haraj-plus-nav-btn.active {
+            color: #0066cc !important;
+        }
+        #haraj-plus-nav-btn.active svg {
+            stroke: #0066cc !important;
+        }
+
         /* Haraj Plus Popup Modal - Clean Haraj Theme (Blue, White, Black/Dark) */
         #haraj-plus-modal {
             position: fixed !important;
@@ -156,9 +172,8 @@
             color: #0f172a !important;
             border-radius: 16px !important;
             box-shadow: 0 12px 35px -4px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(0, 0, 0, 0.08) !important;
-            z-index: 999995 !important;
+            z-index: 9999999 !important;
             font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Tajawal", sans-serif !important;
-            direction: ${isAr ? 'rtl' : 'ltr'} !important;
             opacity: 0 !important;
             pointer-events: none !important;
             transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;
@@ -654,8 +669,11 @@
     function createModal() {
         if (document.getElementById('haraj-plus-modal')) return;
 
+        const i18n = getI18n();
         const modal = document.createElement('div');
         modal.id = 'haraj-plus-modal';
+        modal.dir = i18n.isAr ? 'rtl' : 'ltr';
+
         modal.innerHTML = `
             <div class="haraj-modal-header">
                 <div class="haraj-modal-title">
@@ -664,14 +682,14 @@
                         <line x1="12" y1="8" x2="12" y2="16"></line>
                         <line x1="8" y1="12" x2="16" y2="12"></line>
                     </svg>
-                    <span>${I18N.title}</span>
+                    <span id="modal-title-text">${i18n.title}</span>
                     <span class="haraj-plus-badge">v${VERSION}</span>
                 </div>
-                <button class="haraj-modal-close" id="haraj-modal-close" title="إغلاق">×</button>
+                <button class="haraj-modal-close" id="haraj-modal-close" title="Close">×</button>
             </div>
             <div class="haraj-modal-body">
-                <div class="haraj-token-warning" id="token-warning">${I18N.sessionWarning}</div>
-                <button class="haraj-relogin-btn" id="relogin-btn">${I18N.relogin}</button>
+                <div class="haraj-token-warning" id="token-warning">${i18n.sessionWarning}</div>
+                <button class="haraj-relogin-btn" id="relogin-btn">${i18n.relogin}</button>
 
                 <!-- 2 Main Actions: تحديث & اعلاناتي -->
                 <div class="haraj-action-grid">
@@ -681,7 +699,7 @@
                             <polyline points="1 20 1 14 7 14"></polyline>
                             <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
                         </svg>
-                        <span id="update-btn-text">${I18N.update}</span>
+                        <span id="update-btn-text">${i18n.update}</span>
                     </button>
                     <button class="haraj-btn-secondary" id="myads-btn">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
@@ -691,34 +709,34 @@
                             <line x1="16" y1="17" x2="8" y2="17"></line>
                             <polyline points="10 9 9 9 8 9"></polyline>
                         </svg>
-                        <span>${I18N.myAds}</span>
+                        <span id="myads-btn-text">${i18n.myAds}</span>
                     </button>
                 </div>
 
                 <!-- Batch Speed Toggle -->
                 <div class="haraj-batch-row">
-                    <button class="haraj-batch-btn ${CONFIG.adsPerBatch === 3 ? 'active' : ''}" data-speed="3">3 ${I18N.batch}</button>
-                    <button class="haraj-batch-btn ${CONFIG.adsPerBatch === 6 ? 'active' : ''}" data-speed="6">6 ${I18N.batch}</button>
-                    <button class="haraj-batch-btn ${CONFIG.adsPerBatch === 12 ? 'active' : ''}" data-speed="12">12 ${I18N.batch}</button>
+                    <button class="haraj-batch-btn ${CONFIG.adsPerBatch === 3 ? 'active' : ''}" data-speed="3">3 ${i18n.batch}</button>
+                    <button class="haraj-batch-btn ${CONFIG.adsPerBatch === 6 ? 'active' : ''}" data-speed="6">6 ${i18n.batch}</button>
+                    <button class="haraj-batch-btn ${CONFIG.adsPerBatch === 12 ? 'active' : ''}" data-speed="12">12 ${i18n.batch}</button>
                 </div>
 
                 <!-- Live Statistics -->
                 <div class="haraj-stats-grid">
                     <div class="haraj-stat-card">
                         <span class="haraj-stat-val" id="stat-total">0</span>
-                        <span class="haraj-stat-lbl">${I18N.total}</span>
+                        <span class="haraj-stat-lbl">${i18n.total}</span>
                     </div>
                     <div class="haraj-stat-card">
                         <span class="haraj-stat-val" id="stat-updated" style="color:#16a34a !important;">0</span>
-                        <span class="haraj-stat-lbl">${I18N.updated}</span>
+                        <span class="haraj-stat-lbl">${i18n.updated}</span>
                     </div>
                     <div class="haraj-stat-card">
                         <span class="haraj-stat-val" id="stat-failed" style="color:#dc2626 !important;">0</span>
-                        <span class="haraj-stat-lbl">${I18N.failed}</span>
+                        <span class="haraj-stat-lbl">${i18n.failed}</span>
                     </div>
                     <div class="haraj-stat-card">
                         <span class="haraj-stat-val" id="stat-remaining" style="color:#64748b !important;">0</span>
-                        <span class="haraj-stat-lbl">${I18N.remaining}</span>
+                        <span class="haraj-stat-lbl">${i18n.remaining}</span>
                     </div>
                 </div>
 
@@ -732,7 +750,7 @@
                     <div class="haraj-log-toggle" id="haraj-log-toggle">
                         <div class="haraj-log-toggle-left">
                             <span class="haraj-log-arrow" id="haraj-log-arrow">▶</span>
-                            <span>${I18N.logTitle}</span>
+                            <span>${i18n.logTitle}</span>
                         </div>
                         <span class="haraj-log-count-pill" id="haraj-log-count">0</span>
                     </div>
@@ -745,7 +763,7 @@
         document.body.appendChild(modal);
 
         // Bind events inside modal
-        document.getElementById('haraj-modal-close').onclick = toggleModal;
+        document.getElementById('haraj-modal-close').onclick = () => toggleModal(false);
         document.getElementById('update-btn').onclick = handleUpdateClick;
         document.getElementById('myads-btn').onclick = openMyAds;
         document.getElementById('relogin-btn').onclick = () => window.location.href = 'https://haraj.com.sa/login';
@@ -755,10 +773,10 @@
             btn.onclick = () => {
                 const speed = parseInt(btn.getAttribute('data-speed'));
                 CONFIG.adsPerBatch = speed;
-                GM_setValue('adsPerBatch', speed);
+                safeSetValue('adsPerBatch', speed);
                 modal.querySelectorAll('.haraj-batch-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
-                addLog('info', `⚡ ${I18N.batch}: ${speed}`);
+                addLog('info', `⚡ ${i18n.batch}: ${speed}`);
             };
         });
 
@@ -789,7 +807,8 @@
             }
         });
 
-        addLog('info', I18N.ready);
+        addLog('info', i18n.ready);
+        console.log('[Haraj Plus] Modal initialized.');
     }
 
     // Toggle Modal visibility
@@ -810,12 +829,26 @@
         }
     }
 
-    // Find Haraj's bottom navigation bar
+    // Safe locator for Haraj's bottom navigation bar
     function findBottomNav() {
-        return document.querySelector('div.fixed.bottom-0[class*="h-[60px]"]') ||
-               document.querySelector('div.fixed.bottom-0:has(a[data-testid="home"])') ||
-               document.querySelector('a[data-testid="msgs"]')?.closest('div.fixed.bottom-0') ||
-               document.querySelector('a[data-testid="home"]')?.parentElement;
+        // Method 1: Check known children in the bottom bar
+        const testIds = ['msgs', 'notes', 'new_post', 'all_sections', 'home'];
+        for (const testId of testIds) {
+            const el = document.querySelector(`a[data-testid="${testId}"]`);
+            if (el && el.parentElement) {
+                return el.parentElement;
+            }
+        }
+
+        // Method 2: Check fixed bottom container
+        const fixedDivs = document.querySelectorAll('div.fixed.bottom-0');
+        for (const div of fixedDivs) {
+            if (div.querySelector('a[href="/"], a[href*="post"], a[href*="note"], a[href*="chat"]')) {
+                return div;
+            }
+        }
+
+        return null;
     }
 
     // Inject the Plus / بلس button into the bottom navigation bar
@@ -826,26 +859,44 @@
         if (bottomNav) {
             if (desktopBtn) desktopBtn.style.display = 'none';
 
-            // Check if already injected
-            if (document.getElementById('haraj-plus-nav-btn')) return;
+            const existingBtn = document.getElementById('haraj-plus-nav-btn');
+            // If button is already properly placed inside bottomNav, just ensure label is fresh
+            if (existingBtn && bottomNav.contains(existingBtn)) {
+                const label = existingBtn.querySelector('.haraj-plus-label');
+                if (label) {
+                    const i18n = getI18n();
+                    label.textContent = i18n.plus;
+                }
+                return;
+            }
 
+            // If it was attached somewhere else (or disconnected by React re-render), remove old instance
+            if (existingBtn) {
+                existingBtn.remove();
+            }
+
+            const i18n = getI18n();
+
+            // Create button with Haraj's exact Tailwind classes
             const plusItem = document.createElement('a');
             plusItem.id = 'haraj-plus-nav-btn';
-            plusItem.className = 'haraj-plus-nav-item';
+            plusItem.className = 'mt-1 grid flex-1 justify-center justify-items-center gap-0.5 text-elementary cursor-pointer select-none';
             plusItem.setAttribute('role', 'button');
             plusItem.setAttribute('tabindex', '0');
             plusItem.setAttribute('data-testid', 'haraj_plus');
+            plusItem.setAttribute('data-discover', 'true');
             plusItem.style.transform = 'translate3d(0px, 0px, 0px)';
+            plusItem.style.cursor = 'pointer';
 
             plusItem.innerHTML = `
-                <span class="haraj-plus-nav-icon">
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                <span class="relative flex items-center justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"></circle>
                         <line x1="12" y1="8" x2="12" y2="16"></line>
                         <line x1="8" y1="12" x2="16" y2="12"></line>
                     </svg>
                 </span>
-                <div class="haraj-plus-nav-label">${I18N.plus}</div>
+                <div class="text-center haraj-plus-label">${i18n.plus}</div>
             `;
 
             plusItem.onclick = (e) => {
@@ -854,8 +905,9 @@
                 toggleModal();
             };
 
-            // Place as the last item or next to messages
+            // Place as the last item in the bottom nav bar
             bottomNav.appendChild(plusItem);
+            console.log('[Haraj Plus] Injected "بلس" / "Plus" button into bottom navigation bar successfully!');
         } else {
             // Desktop fallback trigger
             let trigger = document.getElementById('haraj-plus-desktop-btn');
@@ -868,7 +920,7 @@
                         <line x1="5" y1="12" x2="19" y2="12"></line>
                     </svg>
                 `;
-                trigger.title = I18N.title;
+                trigger.title = 'Haraj Plus';
                 trigger.onclick = (e) => {
                     e.stopPropagation();
                     toggleModal();
@@ -896,12 +948,13 @@
     }
 
     function extractToken() {
+        const i18n = getI18n();
         const authState = getAuthState();
         if (authState?.accessToken) {
             const parts = authState.accessToken.split('.');
             if (parts.length === 3) {
                 CONFIG.token = authState.accessToken;
-                addLog('success', isAr ? '✓ تم استخراج التوكن من الجلسة' : '✓ Extracted token from session');
+                addLog('success', i18n.isAr ? '✓ تم استخراج التوكن من الجلسة' : '✓ Extracted token from session');
             }
         }
 
@@ -927,13 +980,13 @@
                 const parts = token.split('.');
                 if (parts.length === 3) {
                     CONFIG.token = token;
-                    addLog('success', isAr ? '✓ تم استخراج التوكن من الكوكيز' : '✓ Extracted token from cookies');
+                    addLog('success', i18n.isAr ? '✓ تم استخراج التوكن من الكوكيز' : '✓ Extracted token from cookies');
                 }
             }
         }
 
         if (!CONFIG.token) {
-            addLog('error', isAr ? '✗ فشل استخراج التوكن - يرجى تسجيل الدخول' : '✗ Failed to extract token - please log in');
+            addLog('error', i18n.isAr ? '✗ فشل استخراج التوكن - يرجى تسجيل الدخول' : '✗ Failed to extract token - please log in');
             return false;
         }
 
@@ -946,18 +999,20 @@
     }
 
     function openMyAds() {
+        const i18n = getI18n();
         const username = getMyUsername();
         if (username) {
-            addLog('info', `${isAr ? 'فتح إعلاناتي' : 'Opening ads'}: ${username}`);
+            addLog('info', `${i18n.isAr ? 'فتح إعلاناتي' : 'Opening ads'}: ${username}`);
             window.location.href = `https://haraj.com.sa/users/${username}`;
         } else {
-            addLog('error', isAr ? 'لم يتم العثور على اسم المستخدم - سجل الدخول أولاً' : 'Username not found - please log in first');
+            addLog('error', i18n.isAr ? 'لم يتم العثور على اسم المستخدم - سجل الدخول أولاً' : 'Username not found - please log in first');
         }
     }
 
     // Load posts from page
     async function loadPosts() {
-        addLog('info', isAr ? 'جاري فحص الإعلانات في الصفحة...' : 'Scanning ads on page...');
+        const i18n = getI18n();
+        addLog('info', i18n.isAr ? 'جاري فحص الإعلانات في الصفحة...' : 'Scanning ads on page...');
         const updateBtn = document.getElementById('update-btn');
         if (updateBtn) updateBtn.disabled = true;
 
@@ -978,6 +1033,7 @@
     }
 
     function collectPosts() {
+        const i18n = getI18n();
         postIds = [];
         document.querySelectorAll('[data-test-postid]').forEach(el => {
             const id = el.getAttribute('data-test-postid');
@@ -989,9 +1045,9 @@
         updateStats();
 
         if (postIds.length > 0) {
-            addLog('success', I18N.loadedAds.replace('%s', postIds.length));
+            addLog('success', i18n.loadedAds.replace('%s', postIds.length));
         } else {
-            addLog('error', I18N.noAds);
+            addLog('error', i18n.noAds);
         }
     }
 
@@ -1015,22 +1071,24 @@
             return;
         }
 
+        const i18n = getI18n();
         hideTokenWarning();
         isRunning = true;
 
         const updateBtn = document.getElementById('update-btn');
         const updateBtnText = document.getElementById('update-btn-text');
         if (updateBtn) updateBtn.classList.add('is-running');
-        if (updateBtnText) updateBtnText.textContent = I18N.stop;
+        if (updateBtnText) updateBtnText.textContent = i18n.stop;
 
-        addLog('info', isAr ? 'بدء التحديث المجدول...' : 'Starting batch update...');
+        addLog('info', i18n.isAr ? 'بدء التحديث المجدول...' : 'Starting batch update...');
         await updateBatch();
     }
 
     async function updateBatch() {
+        const i18n = getI18n();
         if (!isRunning || currentIndex >= postIds.length) {
             if (currentIndex >= postIds.length) {
-                addLog('success', I18N.done);
+                addLog('success', i18n.done);
                 stopUpdating();
             }
             return;
@@ -1048,7 +1106,7 @@
         if (isRunning && currentIndex < postIds.length) {
             setTimeout(() => updateBatch(), CONFIG.updateInterval);
         } else if (currentIndex >= postIds.length) {
-            addLog('success', I18N.done);
+            addLog('success', i18n.done);
             stopUpdating();
         }
     }
@@ -1102,11 +1160,12 @@
     }
 
     function stopUpdating() {
+        const i18n = getI18n();
         isRunning = false;
         const updateBtn = document.getElementById('update-btn');
         const updateBtnText = document.getElementById('update-btn-text');
         if (updateBtn) updateBtn.classList.remove('is-running');
-        if (updateBtnText) updateBtnText.textContent = I18N.update;
+        if (updateBtnText) updateBtnText.textContent = i18n.update;
     }
 
     function showTokenWarning() {
@@ -1137,13 +1196,14 @@
     }
 
     function addLog(type, msg) {
+        const i18n = getI18n();
         const log = document.getElementById('log');
         const countPill = document.getElementById('haraj-log-count');
         if (!log) return;
 
         const entry = document.createElement('div');
         entry.className = `haraj-log-item ${type}`;
-        const time = new Date().toLocaleTimeString(isAr ? 'ar-SA' : 'en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const time = new Date().toLocaleTimeString(i18n.isAr ? 'ar-SA' : 'en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         entry.innerHTML = `<span class="haraj-log-time">${time}</span> ${msg}`;
         log.insertBefore(entry, log.firstChild);
 
@@ -1164,11 +1224,12 @@
         const textarea = document.querySelector('textarea[data-testid="add-post-bodyText"]');
         if (!textarea || document.getElementById('haraj-ai-helper-btn')) return;
 
+        const i18n = getI18n();
         const aiBtn = document.createElement('div');
         aiBtn.id = 'haraj-ai-helper-btn';
         aiBtn.className = 'haraj-ai-helper-btn';
         aiBtn.innerHTML = '🤖';
-        aiBtn.title = isAr ? 'مساعد الذكاء الاصطناعي لكتابة الإعلان' : 'AI Assistant';
+        aiBtn.title = i18n.isAr ? 'مساعد الذكاء الاصطناعي لكتابة الإعلان' : 'AI Assistant';
 
         const chatPanel = createAIChatPanel();
         document.body.appendChild(aiBtn);
@@ -1178,22 +1239,23 @@
             currentTextarea = textarea;
             chatPanel.classList.toggle('show');
             if (chatPanel.classList.contains('show')) {
-                addAIMessage('system', isAr ? 'مرحباً! أستطيع مساعدتك في تحسين نص إعلانك وتنسيقه باحترافية. اكتب المطلوب وسأقوم بصياغته.' : 'Hello! I can help refine and optimize your ad copy. What would you like to improve?');
+                addAIMessage('system', i18n.isAr ? 'مرحباً! أستطيع مساعدتك في تحسين نص إعلانك وتنسيقه باحترافية. اكتب المطلوب وسأقوم بصياغته.' : 'Hello! I can help refine and optimize your ad copy. What would you like to improve?');
             }
         });
     }
 
     function createAIChatPanel() {
+        const i18n = getI18n();
         const panel = document.createElement('div');
         panel.id = 'haraj-ai-chat-panel';
         panel.innerHTML = `
             <div class="haraj-ai-header">
-                <span>🤖 ${isAr ? 'مساعد إعلانات حراج' : 'Haraj AI Assistant'}</span>
+                <span>🤖 ${i18n.isAr ? 'مساعد إعلانات حراج' : 'Haraj AI Assistant'}</span>
                 <button style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer;" class="haraj-ai-close">×</button>
             </div>
             <div class="haraj-ai-messages" id="haraj-ai-messages"></div>
             <div class="haraj-ai-input-wrap">
-                <input type="text" class="haraj-ai-input" id="haraj-ai-input" placeholder="${isAr ? 'اكتب طلبك هنا...' : 'Type your request...'}" />
+                <input type="text" class="haraj-ai-input" id="haraj-ai-input" placeholder="${i18n.isAr ? 'اكتب طلبك هنا...' : 'Type your request...'}" />
                 <button class="haraj-ai-send" id="haraj-ai-send-btn">➤</button>
             </div>
         `;
@@ -1214,6 +1276,7 @@
         const container = document.getElementById('haraj-ai-messages');
         if (!container) return;
 
+        const i18n = getI18n();
         const msgDiv = document.createElement('div');
         msgDiv.className = `haraj-ai-msg ${role}`;
 
@@ -1222,8 +1285,8 @@
                 <div>${content}</div>
                 <div class="haraj-ai-preview-box">${suggestedText}</div>
                 <div class="haraj-ai-actions">
-                    <button class="haraj-ai-act-btn accept" id="ai-accept">${isAr ? '✓ تطبيق على الإعلان' : '✓ Apply'}</button>
-                    <button class="haraj-ai-act-btn decline" id="ai-decline">${isAr ? '✗ إلغاء' : '✗ Cancel'}</button>
+                    <button class="haraj-ai-act-btn accept" id="ai-accept">${i18n.isAr ? '✓ تطبيق على الإعلان' : '✓ Apply'}</button>
+                    <button class="haraj-ai-act-btn decline" id="ai-decline">${i18n.isAr ? '✗ إلغاء' : '✗ Cancel'}</button>
                 </div>
             `;
             msgDiv.querySelector('#ai-accept').onclick = acceptAIText;
@@ -1240,6 +1303,7 @@
         const message = input.value.trim();
         if (!message || !currentTextarea) return;
 
+        const i18n = getI18n();
         const sendBtn = document.getElementById('haraj-ai-send-btn');
         if (sendBtn) sendBtn.disabled = true;
 
@@ -1247,7 +1311,7 @@
         aiChatMessages.push({ role: 'user', content: message });
         input.value = '';
 
-        addAIMessage('system', isAr ? 'جاري التحسين والرد...' : 'Thinking...');
+        addAIMessage('system', i18n.isAr ? 'جاري التحسين والرد...' : 'Thinking...');
 
         try {
             const currentContent = currentTextarea.value;
@@ -1280,47 +1344,71 @@
                 const aiResponse = data.choices[0].message.content;
                 suggestedText = aiResponse;
                 aiChatMessages.push({ role: 'assistant', content: aiResponse });
-                addAIMessage('assistant', isAr ? 'إليك النص المقترح للإعلان:' : 'Here is the refined text:', true);
+                addAIMessage('assistant', i18n.isAr ? 'إليك النص المقترح للإعلان:' : 'Here is the refined text:', true);
             } else {
-                addAIMessage('system', isAr ? 'حدث خطأ في معالجة الطلب.' : 'Error processing request.');
+                addAIMessage('system', i18n.isAr ? 'حدث خطأ في معالجة الطلب.' : 'Error processing request.');
             }
         } catch (e) {
-            addAIMessage('system', isAr ? 'تعذر الاتصال بالذكاء الاصطناعي.' : 'Failed to connect to AI.');
+            addAIMessage('system', i18n.isAr ? 'تعذر الاتصال بالذكاء الاصطناعي.' : 'Failed to connect to AI.');
         } finally {
             if (sendBtn) sendBtn.disabled = false;
         }
     }
 
     function acceptAIText() {
+        const i18n = getI18n();
         if (currentTextarea && suggestedText) {
             currentTextarea.value = suggestedText;
             currentTextarea.dispatchEvent(new Event('input', { bubbles: true }));
             currentTextarea.dispatchEvent(new Event('change', { bubbles: true }));
-            addAIMessage('system', isAr ? '✓ تم تحديث نص الإعلان بنجاح!' : '✓ Updated ad text!');
+            addAIMessage('system', i18n.isAr ? '✓ تم تحديث نص الإعلان بنجاح!' : '✓ Updated ad text!');
             suggestedText = '';
         }
     }
 
     function declineAIText() {
-        addAIMessage('system', isAr ? 'تم إلغاء الاقتراح.' : 'Cancelled.');
+        const i18n = getI18n();
+        addAIMessage('system', i18n.isAr ? 'تم إلغاء الاقتراح.' : 'Cancelled.');
         suggestedText = '';
     }
 
-    // Lifecycle Watcher: MutationObserver to re-inject buttons when React/Next.js updates DOM
-    function init() {
-        createModal();
-        injectNavButton();
-        injectAIButton();
-
-        const observer = new MutationObserver(() => {
+    // Main Init
+    function tick() {
+        try {
+            createModal();
             injectNavButton();
             injectAIButton();
-        });
+        } catch (err) {
+            console.error('[Haraj Plus] Tick error:', err);
+        }
+    }
 
-        observer.observe(document.body, {
-            childList: true,
-            subtree: true
-        });
+    function init() {
+        tick();
+
+        // 1. Polling interval to handle React hydration / delayed rendering
+        let attempts = 0;
+        const intervalId = setInterval(() => {
+            tick();
+            attempts++;
+            if (attempts >= 40) { // Poll for 12 seconds
+                clearInterval(intervalId);
+            }
+        }, 300);
+
+        // 2. MutationObserver for SPA route changes and dynamic updates
+        try {
+            const observer = new MutationObserver(() => {
+                tick();
+            });
+
+            observer.observe(document.body || document.documentElement, {
+                childList: true,
+                subtree: true
+            });
+        } catch (e) {
+            console.error('[Haraj Plus] Observer setup error:', e);
+        }
     }
 
     if (document.readyState === 'loading') {
@@ -1328,6 +1416,4 @@
     } else {
         init();
     }
-})();
-
 })();
